@@ -1,0 +1,12 @@
+.{
+    .name = .zigwlexample,
+    .version = "0.0.0",
+    .dependencies = .{
+        .wayland = .{
+            .url = "git+https://github.com/ifreund/zig-wayland#42a9edb1df8efd57cae0d05121ffa94d3df147c2",
+            .hash = "wayland-0.5.0-dev-lQa1kpfXAQAcgPkLlX_6VLfrYm2j07h1xvxjKbDwy5jk",
+        },
+    },
+    .paths = .{ "src", "build.zig", "build.zig.zon" },
+    .fingerprint = 0x4d0c4747945dea79,
+}
