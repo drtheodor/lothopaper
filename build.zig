@@ -19,13 +19,16 @@ pub fn build(b: *std.Build) void {
     const wayland = b.createModule(.{ .root_source_file = scanner.result });
 
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+    scanner.addCustomProtocol(b.path("protocol/wlr-layer-shell-unstable-v1.xml"));
 
     // Pass the maximum version implemented by your wayland server or client.
     // Requests, events, enums, etc. from newer versions will not be generated,
     // ensuring forwards compatibility with newer protocol xml.
-    scanner.generate("wl_compositor", 1);
+    scanner.generate("wl_compositor", 4);
     scanner.generate("wl_shm", 1);
-    scanner.generate("xdg_wm_base", 1);
+    scanner.generate("wl_output", 3);
+    scanner.generate("xdg_wm_base", 3);
+    scanner.generate("zwlr_layer_shell_v1", 4);
 
     exe.root_module.addImport("wayland", wayland);
 
