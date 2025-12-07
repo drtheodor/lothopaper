@@ -6,6 +6,10 @@
             .url = "git+https://github.com/ifreund/zig-wayland#42a9edb1df8efd57cae0d05121ffa94d3df147c2",
             .hash = "wayland-0.5.0-dev-lQa1kpfXAQAcgPkLlX_6VLfrYm2j07h1xvxjKbDwy5jk",
         },
+        .zigimg = .{
+            .url = "git+https://www.github.com/zigimg/zigimg.git#eab2522c023b9259db8b13f2f90d609b7437e5f6",
+            .hash = "zigimg-0.1.0-8_eo2vUZFgAAtN1c6dAO5DdqL0d4cEWHtn6iR5ucZJti",
+        },
     },
     .paths = .{ "src", "build.zig", "build.zig.zon" },
     .fingerprint = 0x4d0c4747945dea79,

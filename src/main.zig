@@ -25,6 +25,8 @@ const zwlr = wayland.client.zwlr;
 
 const config = @import("config.zig");
 
+const zigimg = @import("zigimg");
+
 const gl = @cImport({
     @cInclude("GLES2/gl2.h");
 });
@@ -39,6 +41,9 @@ const vertices = [_]f32{
 
 const fps = 60;
 const sleepTime: u64 = std.time.ns_per_s / fps;
+
+// max number of monitors we support (configurable)
+const maxOutputs = 8;
 
 // Per-output window state
 const OutputWindow = struct {
@@ -83,9 +88,6 @@ const Context = struct {
     outputCount: usize = 0,
 };
 
-// max number of monitors we support (configurable)
-const maxOutputs = 8;
-
 pub fn main() !void {
     // Allocator for shader loading
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -121,12 +123,39 @@ pub fn main() !void {
     }
 
     // Build shader paths under $HOME/.config/lothopaper
-    const vertSrc = try config.readConfigString(allocator, "vert.glsl");
-    const fragSrc = try config.readConfigString(allocator, "frag.glsl");
+    const vertSrc = try loadShaderSourceWithFallback(
+        allocator,
+        "vert.glsl",
+        "vert.glsl",
+    );
+    const fragSrc = try loadShaderSourceWithFallback(
+        allocator,
+        "frag.glsl",
+        "dvd_frag.glsl",
+    );
+
+    // We HAVE to use getConfigPath for non-String files - like images.
+    const imgPath = try config.getConfigPath(allocator, "image.png");
 
     const programID = try loadProgram(allocator, vertSrc, fragSrc);
     allocator.free(fragSrc);
     allocator.free(vertSrc);
+
+    var test_file = std.fs.openFileAbsolute(imgPath, .{}) catch |err| blk: {
+        std.debug.print("openFileAbsolute('{s}') failed: {s}, falling back to ./test.png\n", .{ imgPath, @errorName(err) });
+        break :blk try std.fs.cwd().openFile("test.png", .{});
+    };
+    defer test_file.close();
+    allocator.free(imgPath);
+
+    // Temporary read buffer for zigimg
+    const read_buf = try allocator.alloc(u8, 64 * 1024); // 64 KiB is usually fine
+    defer allocator.free(read_buf);
+
+    var img = try zigimg.Image.fromFile(allocator, test_file, read_buf);
+    defer img.deinit(allocator);
+
+    const textureId = createTextureFromImage(img);
 
     // Bullshit geometry setup for the fullscreen quad - can be removed
     var vbo: gl.GLuint = 0;
@@ -152,6 +181,7 @@ pub fn main() !void {
 
     const timeLoc = gl.glGetUniformLocation(programID, "Time");
     const resLoc = gl.glGetUniformLocation(programID, "Resolution");
+    const texLoc = gl.glGetUniformLocation(programID, "uTexture");
 
     // Create a layer surface and EGL window per output
     var windowCount: usize = 0;
@@ -249,6 +279,10 @@ pub fn main() !void {
 
             gl.glUniform1f(timeLoc, elapsedSec);
             gl.glUniform4f(resLoc, @floatFromInt(w.width), @floatFromInt(w.height), 0, 0);
+
+            gl.glActiveTexture(gl.GL_TEXTURE0);
+            gl.glBindTexture(gl.GL_TEXTURE_2D, textureId);
+            gl.glUniform1i(texLoc, 0);
 
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
 
@@ -405,4 +439,84 @@ fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []con
     gl.glDeleteShader(frag_shader);
 
     return program;
+}
+
+fn createTextureFromImage(img: zigimg.Image) gl.GLuint {
+    var tex: gl.GLuint = 0;
+
+    gl.glGenTextures(1, &tex);
+    gl.glBindTexture(gl.GL_TEXTURE_2D, tex);
+
+    const img_format = img.pixelFormat();
+    const width = img.width;
+    const height = img.height;
+
+    var internal_format: gl.GLenum = gl.GL_RGBA;
+    var data_format: gl.GLenum = gl.GL_RGBA;
+
+    switch (img_format) {
+        .rgba32 => {
+            internal_format = gl.GL_RGBA;
+            data_format = gl.GL_RGBA;
+        },
+        .rgb24 => {
+            internal_format = gl.GL_RGB;
+            data_format = gl.GL_RGB;
+        },
+        else => {
+            // Fallback: convert to RGBA8
+            // zigimg CAN do conversion, but yk we should assume RGBA/RGB input
+            internal_format = gl.GL_RGBA;
+            data_format = gl.GL_RGBA;
+        },
+    }
+
+    const pixels = img.rawBytes();
+
+    gl.glTexImage2D(
+        gl.GL_TEXTURE_2D,
+        0,
+        @as(c_int, @intCast(internal_format)),
+        @as(gl.GLsizei, @intCast(width)),
+        @as(gl.GLsizei, @intCast(height)),
+        0,
+        data_format,
+        gl.GL_UNSIGNED_BYTE,
+        pixels.ptr,
+    );
+
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
+
+    return tex;
+}
+
+fn loadShaderSourceWithFallback(
+    allocator: std.mem.Allocator,
+    config_name: []const u8,
+    cwd_name: []const u8,
+) ![]u8 {
+    const cfg_src = config.readConfigString(allocator, config_name) catch |err| {
+        std.debug.print("Failed to load {s} from config: {s}\n", .{ config_name, @errorName(err) });
+
+        var file = try std.fs.cwd().openFile(cwd_name, .{});
+        defer file.close();
+
+        const stat = try file.stat();
+        const size = @as(usize, @intCast(stat.size));
+        const buf = try allocator.alloc(u8, size);
+
+        const n = try file.readAll(buf);
+        if (n != size) {
+            std.debug.print("Warning: expected to read {}, got {} bytes from {s}\n", .{ size, n, cwd_name });
+        }
+
+        std.debug.print("Loaded {s} from CWD as fallback.\n", .{cwd_name});
+        return buf;
+    };
+
+    std.debug.print("Loaded {s} from config.\n", .{config_name});
+    return cfg_src;
 }
