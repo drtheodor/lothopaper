@@ -6,7 +6,11 @@
             .url = "git+https://github.com/ifreund/zig-wayland#42a9edb1df8efd57cae0d05121ffa94d3df147c2",
             .hash = "wayland-0.5.0-dev-lQa1kpfXAQAcgPkLlX_6VLfrYm2j07h1xvxjKbDwy5jk",
         },
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap#3ae92228409d82a2c906fafc228b7920d9ff046b",
+            .hash = "clap-0.11.0-oBajB03nAQAvaRnlqid3PwE7E_JqPypon6NQoMlm9ekb",
+        },
     },
     .paths = .{ "src", "build.zig", "build.zig.zon" },
-    .fingerprint = 0x4d0c4747945dea79,
+    .fingerprint = 0x4a527591e75f7a6b,
 }
