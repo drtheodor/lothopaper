@@ -27,6 +27,8 @@ const zwlr = wayland.client.zwlr;
 
 const Config = @import("config.zig");
 
+const zigimg = @import("zigimg");
+
 const gl = @cImport({
     @cInclude("GLES2/gl2.h");
 });
@@ -97,14 +99,6 @@ const Context = struct {
     }
 };
 
-const params = clap.parseParamsComptime(
-    \\-h, --help             Display this help and exit.
-    \\-n, --number <usize>   An option parameter, which takes a value.
-    \\-s, --string <str>...  An option parameter which can be specified multiple times.
-    \\<str>...
-    \\
-);
-
 pub fn main() !void {
     // Allocator for shader loading
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -113,6 +107,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const config = try Config.readConfig(allocator);
+    defer config.deinit(allocator);
 
     // Connect to wayland
     const display = try wl.Display.connect(null);
@@ -141,10 +136,35 @@ pub fn main() !void {
         return;
     }
 
-    const programID = try applyConfigShader(allocator);
+    const programID = applyConfigShader(allocator) catch |err| {
+        std.debug.print("Failed to apply shaders: {}\n", .{err});
+        return;
+    };
 
     const timeLoc = gl.glGetUniformLocation(programID, "Time");
     const resLoc = gl.glGetUniformLocation(programID, "Resolution");
+    const texLoc = gl.glGetUniformLocation(programID, "uTexture");
+
+    // LOQORS FUCKY SHIT HERE v
+
+    // We HAVE to use getConfigPath for non-String files - like images.
+    const imgPath = try Config.getConfigPath(allocator, "image.png");
+    var testFile = std.fs.openFileAbsolute(imgPath, .{}) catch |err| blk: {
+        std.debug.print("openFileAbsolute('{s}') failed: {s}, falling back to ./test.png\n", .{ imgPath, @errorName(err) });
+        break :blk try std.fs.cwd().openFile("test.png", .{});
+    };
+    defer testFile.close();
+    allocator.free(imgPath);
+
+    // Temporary read buffer for zigimg
+    const read_buf = try allocator.alloc(u8, 64 * 1024); // 64 KiB is usually fine
+    defer allocator.free(read_buf);
+
+    var img = try zigimg.Image.fromFile(allocator, testFile, read_buf);
+    defer img.deinit(allocator);
+
+    const textureId = createTextureFromImage(img);
+    // LOQORS FUCKY SHIT HERE ^
 
     // Bullshit geometry setup for the fullscreen quad - can be removed
     var vbo: gl.GLuint = 0;
@@ -268,6 +288,10 @@ pub fn main() !void {
             gl.glUniform1f(timeLoc, elapsedSec);
             gl.glUniform4f(resLoc, @floatFromInt(w.width), @floatFromInt(w.height), 0, 0);
 
+            gl.glActiveTexture(gl.GL_TEXTURE0);
+            gl.glBindTexture(gl.GL_TEXTURE_2D, textureId);
+            gl.glUniform1i(texLoc, @intCast(textureId - 1));
+
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
 
             w.swapBuffers(egl);
@@ -389,15 +413,13 @@ fn loadShader(allocator: std.mem.Allocator, shader_type: u32, src: []const u8) S
 }
 
 const DEFAULT_VERT_SHADER =
-    \\
+    \\#version 320 es
     \\precision highp float;
     \\
-    \\// Input vertices in NDC
-    \\attribute vec2 a_Position;
-    \\attribute vec2 a_TexCoord;
+    \\in vec2 a_Position;
+    \\in vec2 a_TexCoord;
     \\
-    \\// Output to fragment shader
-    \\varying vec2 v_TexCoord;
+    \\out vec2 v_TexCoord;
     \\
     \\void main() {
     \\    // Pass texture coordinates directly
@@ -409,14 +431,81 @@ const DEFAULT_VERT_SHADER =
 ;
 
 const DEFAULT_FRAG_SHADER =
+    \\#version 320 es
+    \\precision mediump float;
     \\
-    \\precision highp float;
-    \\
-    \\uniform highp float Time;
+    \\uniform float Time;
     \\uniform vec4 Resolution;
+    \\uniform sampler2D uTexture;
     \\
-    \\void main() {
-    \\    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+    \\out vec4 FragColor;
+    \\
+    \\vec4 background(vec2 fragCoord, vec2 screenDims) {
+    \\    // Normalized coordinates [0,1]
+    \\    vec2 uv = fragCoord / screenDims;
+    \\
+    \\    // Simple vertical gradient: dark at bottom, slightly lighter at top
+    \\    vec3 topColor = vec3(0.05, 0.10, 0.25); // dark bluish
+    \\    vec3 bottomColor = vec3(0.00, 0.02, 0.10); // almost black-blue
+    \\
+    \\    float t = uv.y;
+    \\    vec3 col = mix(bottomColor, topColor, t);
+    \\
+    \\    // optional subtle vignette
+    \\    vec2 c = uv - 0.5;
+    \\    float vignette = 1.0 - dot(c, c) * 0.8;
+    \\    vignette = clamp(vignette, 0.0, 1.0);
+    \\
+    \\    col *= vignette;
+    \\
+    \\    return vec4(col, 1.0);
+    \\}
+    \\
+    \\void main(void) {
+    \\    vec2 screenDims = Resolution.xy;
+    \\
+    \\    ivec2 textureDims_i = textureSize(uTexture, 0);
+    \\    vec2 textureDims = vec2(textureDims_i) * 2.0;
+    \\
+    \\    vec2 maxPos = screenDims - textureDims;
+    \\
+    \\    // If the texture is larger than the screen, just fullscreen it
+    \\    if (maxPos.x < 0.0 || maxPos.y < 0.0) {
+    \\        vec2 uv = gl_FragCoord.xy / screenDims;
+    \\        vec4 tex = texture(uTexture, uv);
+    \\        FragColor = tex;
+    \\        return;
+    \\    }
+    \\
+    \\    float speedX = 0.04;
+    \\    float speedY = 0.02;
+    \\
+    \\    float timeX = Time * speedX;
+    \\    float timeY = Time * speedY;
+    \\
+    \\    float normalizedPosX = abs(fract(timeX) * 2.0 - 1.0);
+    \\    float normalizedPosY = abs(fract(timeY) * 2.0 - 1.0);
+    \\
+    \\    vec2 ImagePosition = vec2(
+    \\            normalizedPosX * maxPos.x,
+    \\            normalizedPosY * maxPos.y
+    \\        );
+    \\
+    \\    vec2 fragCoord = gl_FragCoord.xy;
+    \\    vec2 relativeCoord = fragCoord - ImagePosition;
+    \\
+    \\    // Outside the image rect → gradient background
+    \\    if (relativeCoord.x < 0.0 || relativeCoord.y < 0.0 ||
+    \\            relativeCoord.x > textureDims.x || relativeCoord.y > textureDims.y) {
+    \\        FragColor = background(fragCoord, screenDims);
+    \\        return;
+    \\    }
+    \\
+    \\    vec2 uv = relativeCoord / textureDims;
+    \\    uv.y = 1.0 - uv.y;
+    \\
+    \\    vec4 tex = texture(uTexture, uv);
+    \\    FragColor = tex;
     \\}
 ;
 
@@ -466,4 +555,56 @@ fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []con
     gl.glDeleteShader(frag_shader);
 
     return program;
+}
+
+fn createTextureFromImage(img: zigimg.Image) gl.GLuint {
+    var tex: gl.GLuint = 0;
+
+    gl.glGenTextures(1, &tex);
+    gl.glBindTexture(gl.GL_TEXTURE_2D, tex);
+
+    const img_format = img.pixelFormat();
+    const width = img.width;
+    const height = img.height;
+
+    var internal_format: gl.GLenum = gl.GL_RGBA;
+    var data_format: gl.GLenum = gl.GL_RGBA;
+
+    switch (img_format) {
+        .rgba32 => {
+            internal_format = gl.GL_RGBA;
+            data_format = gl.GL_RGBA;
+        },
+        .rgb24 => {
+            internal_format = gl.GL_RGB;
+            data_format = gl.GL_RGB;
+        },
+        else => {
+            // Fallback: convert to RGBA8
+            // zigimg CAN do conversion, but yk we should assume RGBA/RGB input
+            internal_format = gl.GL_RGBA;
+            data_format = gl.GL_RGBA;
+        },
+    }
+
+    const pixels = img.rawBytes();
+
+    gl.glTexImage2D(
+        gl.GL_TEXTURE_2D,
+        0,
+        @as(c_int, @intCast(internal_format)),
+        @as(gl.GLsizei, @intCast(width)),
+        @as(gl.GLsizei, @intCast(height)),
+        0,
+        data_format,
+        gl.GL_UNSIGNED_BYTE,
+        pixels.ptr,
+    );
+
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
+
+    return tex;
 }

@@ -24,12 +24,13 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
     var file = std.fs.cwd().createFile(path, .{ .read = true, .exclusive = true }) catch |err| switch (err) {
         error.PathAlreadyExists => {
             // File already exists, open it instead.
-            std.debug.print("File '{s}' already exists. Opening it.\n", .{path});
             return std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
         },
         else => return err, // Handle other potential errors
     };
     defer file.close();
+
+    std.debug.print("File '{s}' does not exist. Creating default.\n", .{path});
 
     var buffer: [1024]u8 = undefined;
     var fileWriter = file.writer(&buffer);
@@ -49,10 +50,13 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
     defer allocator.free(path);
 
     const src = try readOrCreateFile(allocator, path, {}, writeDefaultConfig);
+    defer allocator.free(src);
     const terminated = try allocator.dupeZ(u8, src);
     defer allocator.free(terminated);
 
     var diag: zon.Diagnostics = .{};
+    defer diag.deinit(allocator);
+
     const res = zon.fromSlice(Self, allocator, terminated, &diag, .{
         .free_on_error = true,
         .ignore_unknown_fields = false,
@@ -67,6 +71,10 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
     try stdout.flush();
 
     return res;
+}
+
+pub fn deinit(self: @This(), allocator: mem.Allocator) void {
+    zon.free(allocator, self);
 }
 
 fn ensureConfigPath(allocator: mem.Allocator) !void {
@@ -98,7 +106,7 @@ fn getConfigBase(allocator: mem.Allocator) ![]u8 {
 }
 
 // Build ~/.config/lothopaper/config/<filename>
-fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
+pub fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
     // Get the environment variable "$HOME"
     const base = try getConfigBase(allocator);
     defer allocator.free(base);
