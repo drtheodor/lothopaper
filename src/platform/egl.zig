@@ -1,7 +1,3 @@
-const wayland = @import("wayland");
-const wl = wayland.client.wl;
-const zwlr = wayland.client.zwlr;
-
 pub const c = @cImport({
     @cDefine("EGL_EGLEXT_PROTOTYPES", "1");
     @cInclude("EGL/egl.h");
@@ -20,20 +16,20 @@ pub fn deinit(self: Self) void {
     defer _ = c.eglDestroyContext(self.display, self.context);
 }
 
-pub const EGLInitError = error{
-    InitFailed,
+pub const InitError = error{
+    EGLInitFailed,
     RoundtripFailed,
     OutOfMemory,
 };
 
-pub fn init(compositor: *wl.Compositor, layerShell: *zwlr.LayerShellV1, display: *wl.Display) EGLInitError!Self {
+pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType) InitError!Self {
     // EGL init (shared for all outputs)
-    const eglDisplay = c.eglGetDisplay(@ptrCast(display));
+    const eglDisplay = c.eglGetDisplay(display);
     var major: c_int = 0;
     var minor: c_int = 0;
 
     if (c.eglInitialize(eglDisplay, &major, &minor) == 0)
-        return error.InitFailed;
+        return error.EGLInitFailed;
 
     _ = c.eglBindAPI(c.EGL_OPENGL_ES_API);
 
@@ -65,22 +61,7 @@ pub fn init(compositor: *wl.Compositor, layerShell: *zwlr.LayerShellV1, display:
 
     // Make context current once (on a temporary surface) so it can create the program/VBO
     {
-        var tmpSurface = try compositor.createSurface();
-        defer tmpSurface.destroy();
-
-        const tmpLayer = try layerShell.getLayerSurface(
-            tmpSurface,
-            null,
-            zwlr.LayerShellV1.Layer.background,
-            "zig-layer-demo-init",
-        );
-        defer tmpLayer.destroy();
-        tmpLayer.setAnchor(.{ .top = true, .bottom = true, .left = true, .right = true });
-        tmpLayer.setExclusiveZone(-1);
-        tmpSurface.commit();
-        if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
-
-        const tmp_egl_window = c.wl_egl_window_create(@ptrCast(tmpSurface), 800, 600);
+        const tmp_egl_window = c.wl_egl_window_create(tempSurface, 1, 1);
         defer _ = c.wl_egl_window_destroy(tmp_egl_window);
 
         const tmp_egl_surface = c.eglCreateWindowSurface(
@@ -105,8 +86,8 @@ pub const Window = struct {
     window: ?*c.wl_egl_window,
     surface: c.EGLSurface,
 
-    pub inline fn init(egl: Self, surface: *wl.Surface, width: c_int, height: c_int) @This() {
-        const eglWindow = c.wl_egl_window_create(@ptrCast(surface), width, height);
+    pub inline fn init(egl: Self, surface: ?*c.struct_wl_surface, width: c_int, height: c_int) @This() {
+        const eglWindow = c.wl_egl_window_create(surface, width, height);
 
         const eglSurface = c.eglCreateWindowSurface(
             egl.display,

@@ -5,8 +5,15 @@ const zon = std.zon.parse;
 
 const Self = @This();
 
+pub const Resource = union(enum) {
+    image: []const u8,
+};
+
 fps: usize = 60,
 maxOutputs: usize = 8,
+resources: []const Resource = &.{.{
+    .image = "./test.png",
+}},
 
 // TODO: improve errors
 pub fn readConfigString(allocator: mem.Allocator, name: []const u8, def: []const u8) ![]u8 {
@@ -40,7 +47,7 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
 
     try writer.flush();
 
-    return &buffer;
+    return readOrCreateFile(allocator, path, ctx, def);
 }
 
 pub fn readConfig(allocator: std.mem.Allocator) !Self {
@@ -50,7 +57,9 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
     defer allocator.free(path);
 
     const src = try readOrCreateFile(allocator, path, {}, writeDefaultConfig);
+    std.debug.print("Config: {s}\n", .{src});
     defer allocator.free(src);
+
     const terminated = try allocator.dupeZ(u8, src);
     defer allocator.free(terminated);
 
@@ -64,8 +73,8 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
 
     const stdoutFile = std.fs.File.stdout();
     var buffer: [1024]u8 = undefined; // Define a buffer for the writer
-    var stdout_writer = stdoutFile.writer(&buffer);
-    var stdout = &stdout_writer.interface;
+    var writer = stdoutFile.writer(&buffer);
+    var stdout = &writer.interface;
 
     try diag.format(stdout);
     try stdout.flush();
