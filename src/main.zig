@@ -130,10 +130,10 @@ pub fn main() !void {
     );
     defer _ = egl.eglDestroyContext(eglDisplay, eglContext);
 
-    // Allocator for shader loading - still not a clue how this works
+    // Allocator for shader loading
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var allocator = gpa.allocator();
 
     // Make context current once (on a temporary surface) so it can create the program/VBO
     {
@@ -166,7 +166,14 @@ pub fn main() !void {
         _ = egl.eglMakeCurrent(eglDisplay, tmp_egl_surface, tmp_egl_surface, eglContext);
     }
 
-    const programID = try LoadProgram(allocator, "vert.glsl", "frag.glsl");
+    // Build shader paths under $HOME/.config/lothopaper/config
+    const vert_path = try getConfigPath(allocator, "vert.glsl");
+    defer allocator.free(vert_path);
+
+    const frag_path = try getConfigPath(allocator, "frag.glsl");
+    defer allocator.free(frag_path);
+
+    const programID = try LoadProgram(allocator, vert_path, frag_path);
 
     // Bullshit geometry setup for the fullscreen quad - can be removed
     var vbo: gl.GLuint = 0;
@@ -492,4 +499,21 @@ fn LoadProgram(allocator: std.mem.Allocator, vert_path: []const u8, frag_path: [
     gl.glDeleteShader(frag_shader);
 
     return program;
+}
+
+// Build ~/.config/lothopaper/config/<filename>
+fn getConfigPath(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
+    // Get the environment variable "$HOME"
+    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+
+    const parts = [_][]const u8{
+        home,
+        ".config",
+        "lothopaper",
+        "config",
+        filename,
+    };
+
+    const path_joined = try std.fs.path.join(allocator, &parts);
+    return path_joined;
 }
