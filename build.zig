@@ -14,8 +14,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const scanner = Scanner.create(b, .{});
+    const clap = b.dependency("clap", .{});
+    exe.root_module.addImport("clap", clap.module("clap"));
 
+    const scanner = Scanner.create(b, .{});
     const wayland = b.createModule(.{ .root_source_file = scanner.result });
 
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");

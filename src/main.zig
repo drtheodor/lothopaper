@@ -18,12 +18,14 @@
 const std = @import("std");
 const mem = std.mem;
 
+const clap = @import("clap");
+
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const xdg = wayland.client.xdg;
 const zwlr = wayland.client.zwlr;
 
-const config = @import("config.zig");
+const Config = @import("config.zig");
 
 const gl = @cImport({
     @cInclude("GLES2/gl2.h");
@@ -36,9 +38,6 @@ const vertices = [_]f32{
     3.0,  -1.0, 0.0,
     -1.0, 3.0,  0.0,
 };
-
-const fps = 60;
-const sleepTime: u64 = std.time.ns_per_s / fps;
 
 // Per-output window state
 const OutputWindow = struct {
@@ -84,12 +83,27 @@ const Context = struct {
     wm: ?*xdg.WmBase = null,
     layer: ?*zwlr.LayerShellV1 = null,
 
-    outputs: [maxOutputs]?*wl.Output = .{null} ** maxOutputs,
+    outputs: []?*wl.Output,
     outputCount: usize = 0,
+
+    fn init(allocator: mem.Allocator, maxOutputs: usize) error{OutOfMemory}!@This() {
+        return .{
+            .outputs = try allocator.alloc(?*wl.Output, maxOutputs),
+        };
+    }
+
+    fn deinit(self: @This(), allocator: mem.Allocator) void {
+        allocator.free(self.outputs);
+    }
 };
 
-// max number of monitors we support (configurable)
-const maxOutputs = 8;
+const params = clap.parseParamsComptime(
+    \\-h, --help             Display this help and exit.
+    \\-n, --number <usize>   An option parameter, which takes a value.
+    \\-s, --string <str>...  An option parameter which can be specified multiple times.
+    \\<str>...
+    \\
+);
 
 pub fn main() !void {
     // Allocator for shader loading
@@ -98,14 +112,16 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const startTime = std.time.nanoTimestamp();
+    const config = try Config.readConfig(allocator);
 
     // Connect to wayland
     const display = try wl.Display.connect(null);
     defer display.disconnect();
 
     const registry = try display.getRegistry();
-    var context: Context = .{};
+
+    var context = try Context.init(allocator, config.maxOutputs);
+    defer context.deinit(allocator);
 
     registry.setListener(*Context, registryListener, &context);
 
@@ -155,11 +171,11 @@ pub fn main() !void {
     // Create a layer surface and EGL window per output
     var windowCount: usize = 0;
     // Global output windows array
-    var windows: [maxOutputs]OutputWindow = undefined;
+    var windows: []OutputWindow = try allocator.alloc(OutputWindow, config.maxOutputs);
 
     for (context.outputs[0..context.outputCount]) |maybeOut| {
         if (maybeOut) |out| {
-            if (windowCount >= maxOutputs) break;
+            if (windowCount >= config.maxOutputs) break;
 
             // wl_surface for this output
             var surface = try compositor.createSurface();
@@ -212,6 +228,8 @@ pub fn main() !void {
     std.debug.print("Running. Close all layer surfaces to exit.\n", .{});
 
     const running = true;
+    const sleepTime: u64 = std.time.ns_per_s / config.fps;
+    const startTime = std.time.nanoTimestamp();
 
     // Main rendering loop
     while (running) {
@@ -279,7 +297,7 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, ctx: *Cont
             } else if (mem.eql(u8, iface, std.mem.span(zwlr.LayerShellV1.interface.name))) {
                 ctx.layer = registry.bind(g.name, zwlr.LayerShellV1, 4) catch return;
             } else if (mem.eql(u8, iface, std.mem.span(wl.Output.interface.name))) {
-                if (ctx.outputCount < maxOutputs) {
+                if (ctx.outputCount < ctx.outputs.len) {
                     const out = registry.bind(g.name, wl.Output, 3) catch return;
 
                     ctx.outputs[ctx.outputCount] = out;
@@ -370,11 +388,43 @@ fn loadShader(allocator: std.mem.Allocator, shader_type: u32, src: []const u8) S
     return shader;
 }
 
+const DEFAULT_VERT_SHADER =
+    \\
+    \\precision highp float;
+    \\
+    \\// Input vertices in NDC
+    \\attribute vec2 a_Position;
+    \\attribute vec2 a_TexCoord;
+    \\
+    \\// Output to fragment shader
+    \\varying vec2 v_TexCoord;
+    \\
+    \\void main() {
+    \\    // Pass texture coordinates directly
+    \\    v_TexCoord = a_TexCoord;
+    \\
+    \\    // Set the final position directly, no matrix math needed
+    \\    gl_Position = vec4(a_Position, 0.0, 1.0);
+    \\}
+;
+
+const DEFAULT_FRAG_SHADER =
+    \\
+    \\precision highp float;
+    \\
+    \\uniform highp float Time;
+    \\uniform vec4 Resolution;
+    \\
+    \\void main() {
+    \\    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+    \\}
+;
+
 fn applyConfigShader(allocator: std.mem.Allocator) !u32 {
-    const vertSrc = try config.readConfigString(allocator, "vert.glsl");
+    const vertSrc = try Config.readConfigString(allocator, "vert.glsl", DEFAULT_VERT_SHADER);
     defer allocator.free(vertSrc);
 
-    const fragSrc = try config.readConfigString(allocator, "frag.glsl");
+    const fragSrc = try Config.readConfigString(allocator, "frag.glsl", DEFAULT_FRAG_SHADER);
     defer allocator.free(fragSrc);
 
     return try loadProgram(allocator, vertSrc, fragSrc);
