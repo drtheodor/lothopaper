@@ -1,5 +1,5 @@
 .{
-    .name = .zigwlexample,
+    .name = .lothopaper,
     .version = "0.0.0",
     .dependencies = .{
         .wayland = .{
