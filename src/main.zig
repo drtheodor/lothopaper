@@ -37,17 +37,20 @@ const vertices = [_]f32{
     -1.0, 3.0,  0.0,
 };
 
+const fps = 60;
+const sleepTime: u64 = std.time.ns_per_s / fps;
+
 // Per-output window state
 const OutputWindow = struct {
     output: *wl.Output,
     surface: *wl.Surface,
     layerSurface: *zwlr.LayerSurfaceV1,
-    eglWindow: EGL.Window,
-    width: i32,
-    height: i32,
+    eglWindow: EGL.Window = undefined,
+    width: i32 = 0,
+    height: i32 = 0,
 
-    configured: bool,
-    closed: bool,
+    configured: bool = false,
+    closed: bool = false,
 
     inline fn createWindow(self: *@This(), egl: EGL) void {
         self.eglWindow = EGL.Window.init(egl, self.surface, self.width, self.height);
@@ -170,12 +173,7 @@ pub fn main() !void {
                 "lothopaper",
             );
 
-            layerSurface.setAnchor(.{
-                .top = true,
-                .bottom = true,
-                .left = true,
-                .right = true,
-            });
+            layerSurface.setAnchor(.{ .top = true, .bottom = true, .left = true, .right = true });
 
             // This is legit z offset idk why they have to be fancy and call it exclusive zone
             layerSurface.setExclusiveZone(-1);
@@ -185,11 +183,6 @@ pub fn main() !void {
                 .output = out,
                 .surface = surface,
                 .layerSurface = layerSurface,
-                .eglWindow = undefined,
-                .width = 0,
-                .height = 0,
-                .configured = false,
-                .closed = false,
             };
 
             // Per-output listener
@@ -204,6 +197,7 @@ pub fn main() !void {
 
     if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
+    // Must be done after roundtrip.
     // Different sizes for configure -> create EGL windows per output
     {
         var i: usize = 0;
@@ -219,14 +213,13 @@ pub fn main() !void {
 
     std.debug.print("Running. Close all layer surfaces to exit.\n", .{});
 
-    var running = true;
-
     // Main rendering loop
-    while (running) {
+    while (true) {
         // pending wayland events
-        const disp_res = display.dispatchPending();
-        if (disp_res != .SUCCESS) {
-            std.debug.print("dispatchPending error: {}\n", .{disp_res});
+        const disp = display.dispatchPending();
+
+        if (disp != .SUCCESS) {
+            std.debug.print("dispatchPending error: {}\n", .{disp});
             break;
         }
 
@@ -236,15 +229,11 @@ pub fn main() !void {
         const tnow = std.time.nanoTimestamp();
         const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / 1_000_000_000.0;
 
-        running = false;
-
         // Render a single frame per window
         var i: usize = 0;
         while (i < windowCount) : (i += 1) {
             const w = &windows[i];
             if (w.invalid()) continue;
-
-            running = true;
 
             w.makeCurrent(egl);
 
@@ -266,7 +255,7 @@ pub fn main() !void {
             w.swapBuffers(egl);
         }
 
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        std.Thread.sleep(sleepTime);
     }
 
     // Nuke 'em
