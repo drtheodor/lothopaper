@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("wayland-client");
     exe.linkSystemLibrary("EGL");
     exe.linkSystemLibrary("wayland-egl");
-    exe.linkSystemLibrary("GLESv2");
+    exe.linkSystemLibrary("GL");
 
     exe.linkLibC();
 

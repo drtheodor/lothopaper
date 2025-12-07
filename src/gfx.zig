@@ -1,9 +1,7 @@
 const std = @import("std");
 const zigimg = @import("zigimg");
 
-pub const gl = @cImport({
-    @cInclude("GLES2/gl2.h");
-});
+pub const gl = EGL.c;
 
 pub const ShaderError = error{
     Compile,

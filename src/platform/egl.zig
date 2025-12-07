@@ -1,8 +1,12 @@
 pub const c = @cImport({
     @cDefine("EGL_EGLEXT_PROTOTYPES", "1");
+    @cDefine("GL_GLEXT_PROTOTYPES", "1");
     @cInclude("EGL/egl.h");
     @cInclude("EGL/eglext.h");
     @cInclude("wayland-egl.h");
+    @cInclude("GL/gl.h");
+    @cInclude("GL/glext.h");
+    @cInclude("GL/glcorearb.h");
 });
 
 const Self = @This();
@@ -31,15 +35,17 @@ pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType)
     if (c.eglInitialize(eglDisplay, &major, &minor) == 0)
         return error.EGLInitFailed;
 
-    _ = c.eglBindAPI(c.EGL_OPENGL_ES_API);
+    _ = c.eglBindAPI(c.EGL_OPENGL_API);
 
     const attribs = [_]c.EGLint{
-        c.EGL_RENDERABLE_TYPE, c.EGL_OPENGL_ES2_BIT,
+        c.EGL_RENDERABLE_TYPE, c.EGL_OPENGL_BIT,
         c.EGL_SURFACE_TYPE,    c.EGL_WINDOW_BIT,
         c.EGL_RED_SIZE,        8,
         c.EGL_GREEN_SIZE,      8,
         c.EGL_BLUE_SIZE,       8,
         c.EGL_ALPHA_SIZE,      8,
+        c.EGL_DEPTH_SIZE,      24,
+        c.EGL_STENCIL_SIZE,    8,
         c.EGL_NONE,
     };
 
@@ -49,7 +55,6 @@ pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType)
 
     // Shared gl context for all displays
     const ctxAttribs = [_]c.EGLint{
-        c.EGL_CONTEXT_CLIENT_VERSION, 2,
         c.EGL_NONE,
     };
     const eglContext = c.eglCreateContext(

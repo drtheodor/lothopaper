@@ -112,6 +112,11 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
     }
 
     // Bullshit geometry setup for the fullscreen quad - can be removed
+    var vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &vao);
+    gl.glGenBuffers(1, &vao);
+    gl.glBindVertexArray(vao);
+
     var vbo: gl.GLuint = 0;
     gl.glGenBuffers(1, &vbo);
 
@@ -132,6 +137,11 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
         0,
         null,
     );
+
+    gl.glDisable(gl.GL_DITHER);
+    gl.glDisable(gl.GL_BLEND);
+    // gl.glDisable(gl.GL_ALPHA);
+    gl.glDisable(gl.GL_DEPTH_TEST);
 
     std.debug.print("Running.\n", .{});
 
@@ -171,6 +181,7 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
                 gl.glUniform1i(texLoc, @intCast(id - 1));
             }
 
+            gl.glBindVertexArray(vao);
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
 
             context.swapBuffers(window);
