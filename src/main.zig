@@ -16,14 +16,10 @@
 // License: GPL-3.0
 
 const std = @import("std");
-const mem = std.mem;
-
 const clap = @import("clap");
-
-const Config = @import("config.zig");
-
 const zigimg = @import("zigimg");
 
+const Config = @import("config.zig");
 const gfx = @import("gfx.zig");
 const gl = gfx.gl;
 const EGL = gfx.EGL;
@@ -34,12 +30,38 @@ const vertices = [_]f32{
     -1.0, 3.0,  0.0,
 };
 
+const params = clap.parseParamsComptime(
+    \\-h, --help             Display this help and exit.
+    //\\-c, --config <usize>   Path to the config directory (default: "~/.config/lothopaper/").
+    \\
+);
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
 
+    var diag: clap.Diagnostic = .{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = allocator,
+    }) catch |err| {
+        // Report useful error and exit.
+        try diag.reportToFile(.stderr(), err);
+
+        return clap.helpToFile(.stderr(), clap.Help, &params, .{});
+    };
+
+    defer res.deinit();
+
+    if (res.args.help != 0)
+        return clap.helpToFile(.stderr(), clap.Help, &params, .{});
+
+    try drawMain(allocator);
+}
+
+pub fn drawMain(allocator: std.mem.Allocator) !void {
     const config = try Config.readConfig(allocator);
     defer config.deinit(allocator);
 
@@ -107,7 +129,7 @@ pub fn main() !void {
         null,
     );
 
-    std.debug.print("Running. Close all layer surfaces to exit.\n", .{});
+    std.debug.print("Running.\n", .{});
 
     const running = true;
     const sleepTime: u64 = std.time.ns_per_s / config.fps;

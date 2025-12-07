@@ -14,6 +14,14 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    if (b.release_mode != .off) {
+        exe.root_module.strip = true;
+        exe.link_gc_sections = true;
+        exe.link_data_sections = true;
+        exe.lto = .full;
+        exe.want_lto = true;
+    }
+
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
 
@@ -30,9 +38,6 @@ pub fn build(b: *std.Build) void {
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.addCustomProtocol(b.path("protocol/wlr-layer-shell-unstable-v1.xml"));
 
-    // Pass the maximum version implemented by your wayland server or client.
-    // Requests, events, enums, etc. from newer versions will not be generated,
-    // ensuring forwards compatibility with newer protocol xml.
     scanner.generate("wl_compositor", 4);
     scanner.generate("wl_output", 3);
     scanner.generate("xdg_wm_base", 3);
@@ -44,11 +49,17 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("EGL");
     exe.linkSystemLibrary("wayland-egl");
     exe.linkSystemLibrary("GLESv2");
+
     exe.linkLibC();
     b.installArtifact(exe);
 
     // run step
     const run_exe = b.addRunArtifact(exe);
+
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
+
     const run_step = b.step("run", "Run the binary");
     run_step.dependOn(&run_exe.step);
 
