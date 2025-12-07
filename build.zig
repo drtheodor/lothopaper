@@ -33,6 +33,9 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("wayland", wayland);
 
     exe.linkSystemLibrary("wayland-client");
+    exe.linkSystemLibrary("EGL");
+    exe.linkSystemLibrary("wayland-egl");
+    exe.linkSystemLibrary("GLESv2");
     exe.linkLibC();
     b.installArtifact(exe);
 
