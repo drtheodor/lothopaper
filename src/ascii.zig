@@ -9,16 +9,14 @@ const HEADER =
     \\Y88888P  `Y88P'     YP    YP   YP  `Y88P'  88      YP   YP 88      Y88888P 88   YD
     \\
 ;
-const TAIL = "\n";
 
 const VERSION_PREFIX = " Version: ";
-const VERSION = @import("build.zig.zon").version;
 const VERSION_SUFFIX = " ";
-
-const ASCII_LINE_LENGTH = getAsciiLineLength();
+const TAIL = "\n";
 
 const std = @import("std");
 
+const VERSION = @import("build.zig.zon").version;
 pub const ASCII = getAscii();
 
 fn getAscii() []const u8 {
