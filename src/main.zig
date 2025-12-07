@@ -71,14 +71,19 @@ const OutputWindow = struct {
     inline fn invalid(self: @This()) bool {
         return !self.valid();
     }
+
+    inline fn deinit(self: @This(), egl: EGL) void {
+        self.eglWindow.deinit(egl);
+        self.layerSurface.destroy();
+        self.surface.destroy();
+    }
 };
 
 // Context for global Wayland objects
 const Context = struct {
     compositor: ?*wl.Compositor = null,
-    wm_base: ?*xdg.WmBase = null,
+    wm: ?*xdg.WmBase = null,
     layer: ?*zwlr.LayerShellV1 = null,
-
     outputs: [maxOutputs]?*wl.Output = .{null} ** maxOutputs,
     outputCount: usize = 0,
 };
@@ -107,7 +112,7 @@ pub fn main() !void {
     if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
     const compositor = context.compositor orelse return error.NoWlCompositor;
-    const wmBase = context.wm_base orelse return error.NoXdgWmBase;
+    const wmBase = context.wm orelse return error.NoXdgWmBase;
     const layerShell = context.layer orelse return error.NoZwlrLayer;
 
     wmBase.setListener(*Context, wmBaseListener, &context);
@@ -120,13 +125,10 @@ pub fn main() !void {
         return;
     }
 
-    // Build shader paths under $HOME/.config/lothopaper
-    const vertSrc = try config.readConfigString(allocator, "vert.glsl");
-    const fragSrc = try config.readConfigString(allocator, "frag.glsl");
+    const programID = try applyConfigShader(allocator);
 
-    const programID = try loadProgram(allocator, vertSrc, fragSrc);
-    allocator.free(fragSrc);
-    allocator.free(vertSrc);
+    const timeLoc = gl.glGetUniformLocation(programID, "Time");
+    const resLoc = gl.glGetUniformLocation(programID, "Resolution");
 
     // Bullshit geometry setup for the fullscreen quad - can be removed
     var vbo: gl.GLuint = 0;
@@ -150,16 +152,13 @@ pub fn main() !void {
         null,
     );
 
-    const timeLoc = gl.glGetUniformLocation(programID, "Time");
-    const resLoc = gl.glGetUniformLocation(programID, "Resolution");
-
     // Create a layer surface and EGL window per output
     var windowCount: usize = 0;
     // Global output windows array
     var windows: [maxOutputs]OutputWindow = undefined;
 
-    for (context.outputs[0..context.outputCount]) |maybe_out| {
-        if (maybe_out) |out| {
+    for (context.outputs[0..context.outputCount]) |maybeOut| {
+        if (maybeOut) |out| {
             if (windowCount >= maxOutputs) break;
 
             // wl_surface for this output
@@ -208,13 +207,15 @@ pub fn main() !void {
 
     if (windowCount == 0) {
         std.debug.print("No output windows created.\n", .{});
-        return;
+        return error.NoWindows;
     }
 
     std.debug.print("Running. Close all layer surfaces to exit.\n", .{});
 
+    const running = true;
+
     // Main rendering loop
-    while (true) {
+    while (running) {
         // pending wayland events
         const disp = display.dispatchPending();
 
@@ -261,11 +262,7 @@ pub fn main() !void {
     // Nuke 'em
     var i: usize = 0;
     while (i < windowCount) : (i += 1) {
-        const w = &windows[i];
-
-        w.eglWindow.deinit(egl);
-        w.layerSurface.destroy();
-        w.surface.destroy();
+        windows[i].deinit(egl);
     }
 
     std.debug.print("Exit.\n", .{});
@@ -279,7 +276,7 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, ctx: *Cont
             if (mem.eql(u8, iface, std.mem.span(wl.Compositor.interface.name))) {
                 ctx.compositor = registry.bind(g.name, wl.Compositor, 4) catch return;
             } else if (mem.eql(u8, iface, std.mem.span(xdg.WmBase.interface.name))) {
-                ctx.wm_base = registry.bind(g.name, xdg.WmBase, 1) catch return;
+                ctx.wm = registry.bind(g.name, xdg.WmBase, 1) catch return;
             } else if (mem.eql(u8, iface, std.mem.span(zwlr.LayerShellV1.interface.name))) {
                 ctx.layer = registry.bind(g.name, zwlr.LayerShellV1, 4) catch return;
             } else if (mem.eql(u8, iface, std.mem.span(wl.Output.interface.name))) {
@@ -337,8 +334,13 @@ fn zwlrLayerListenerPerOutput(
     }
 }
 
+const ShaderError = error{
+    Compile,
+    OutOfMemory,
+};
+
 // Shader loader
-fn loadShader(allocator: std.mem.Allocator, shader_type: u32, src: []const u8) !u32 {
+fn loadShader(allocator: std.mem.Allocator, shader_type: u32, src: []const u8) ShaderError!u32 {
     const shaderSourceC: [*c]const u8 = @as([*c]const u8, src.ptr);
     const shaderSources = [_][*c]const u8{shaderSourceC};
 
@@ -363,14 +365,24 @@ fn loadShader(allocator: std.mem.Allocator, shader_type: u32, src: []const u8) !
             std.debug.print("Shader {s} failed to compile (no info log)\n", .{src});
         }
 
-        return error.ShaderCompileFailed;
+        return error.Compile;
     }
 
     return shader;
 }
 
+fn applyConfigShader(allocator: std.mem.Allocator) !u32 {
+    const vertSrc = try config.readConfigString(allocator, "vert.glsl");
+    defer allocator.free(vertSrc);
+
+    const fragSrc = try config.readConfigString(allocator, "frag.glsl");
+    defer allocator.free(fragSrc);
+
+    return try loadProgram(allocator, vertSrc, fragSrc);
+}
+
 // merge the vertex and fragment shaders into a shaderprogram
-fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []const u8) !u32 {
+fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []const u8) ShaderError!u32 {
     const vert_shader = try loadShader(allocator, gl.GL_VERTEX_SHADER, vertSrc);
     const frag_shader = try loadShader(allocator, gl.GL_FRAGMENT_SHADER, fragSrc);
 
@@ -397,7 +409,7 @@ fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []con
         } else {
             std.debug.print("Program failed to link (no info log)\n", .{});
         }
-        return error.ShaderCompileFailed;
+        return error.Compile;
     }
 
     // Delete those fuckers
