@@ -38,11 +38,7 @@ pub fn readConfigAndOpenFile(allocator: std.mem.Allocator, name: []const u8) !st
 }
 
 // Build ~/.config/lothopaper/config/<filename>
-<<<<<<< HEAD
-pub fn getConfigPath(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
-=======
-fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
->>>>>>> 5e718197d8026922cccee67b476f69715bf1faea
+pub fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
     // Get the environment variable "$HOME"
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);

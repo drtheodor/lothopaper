@@ -6,15 +6,13 @@
             .url = "git+https://github.com/ifreund/zig-wayland#42a9edb1df8efd57cae0d05121ffa94d3df147c2",
             .hash = "wayland-0.5.0-dev-lQa1kpfXAQAcgPkLlX_6VLfrYm2j07h1xvxjKbDwy5jk",
         },
-<<<<<<< HEAD
         .zigimg = .{
             .url = "git+https://www.github.com/zigimg/zigimg.git#eab2522c023b9259db8b13f2f90d609b7437e5f6",
             .hash = "zigimg-0.1.0-8_eo2vUZFgAAtN1c6dAO5DdqL0d4cEWHtn6iR5ucZJti",
-=======
+        },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap#3ae92228409d82a2c906fafc228b7920d9ff046b",
             .hash = "clap-0.11.0-oBajB03nAQAvaRnlqid3PwE7E_JqPypon6NQoMlm9ekb",
->>>>>>> 5e718197d8026922cccee67b476f69715bf1faea
         },
     },
     .paths = .{ "src", "build.zig", "build.zig.zon" },
