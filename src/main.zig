@@ -30,6 +30,8 @@ const vertices = [_]f32{
     -1.0, 3.0,  0.0,
 };
 
+const ASCII = @import("ascii.zig").ASCII;
+
 const params = clap.parseParamsComptime(
     \\-h, --help             Display this help and exit.
     //\\-c, --config <usize>   Path to the config directory (default: "~/.config/lothopaper/").
@@ -58,6 +60,7 @@ pub fn main() !void {
     if (res.args.help != 0)
         return clap.helpToFile(.stderr(), clap.Help, &params, .{});
 
+    std.debug.print(ASCII, .{});
     try drawMain(allocator);
 }
 

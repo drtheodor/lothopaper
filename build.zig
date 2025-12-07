@@ -14,23 +14,22 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    if (b.release_mode != .off) {
-        exe.root_module.strip = true;
-        exe.link_gc_sections = true;
-        exe.link_data_sections = true;
-        exe.lto = .full;
-        exe.want_lto = true;
-    }
-
-    const clap = b.dependency("clap", .{});
-    exe.root_module.addImport("clap", clap.module("clap"));
-
-    const zigimg_dependency = b.dependency("zigimg", .{
+    const build_zig_zon = b.createModule(.{
+        .root_source_file = b.path("build.zig.zon"),
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("build.zig.zon", build_zig_zon);
 
-    exe.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    const clap = b.dependency("clap", .{}).module("clap");
+    exe.root_module.addImport("clap", clap);
+
+    const zigimg = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("zigimg");
+
+    exe.root_module.addImport("zigimg", zigimg);
 
     const scanner = Scanner.create(b, .{});
     const wayland = b.createModule(.{ .root_source_file = scanner.result });
@@ -51,6 +50,19 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("GLESv2");
 
     exe.linkLibC();
+
+    if (b.release_mode != .off) {
+        wayland.strip = true;
+        clap.strip = true;
+        build_zig_zon.strip = true;
+        exe.root_module.strip = true;
+
+        exe.link_gc_sections = true;
+        exe.link_data_sections = true;
+        exe.lto = .full;
+        exe.want_lto = true;
+    }
+
     b.installArtifact(exe);
 
     // run step
