@@ -39,6 +39,8 @@ const params = clap.parseParamsComptime(
 );
 
 pub fn main() !void {
+    std.debug.print(ASCII, .{});
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
@@ -60,7 +62,6 @@ pub fn main() !void {
     if (res.args.help != 0)
         return clap.helpToFile(.stderr(), clap.Help, &params, .{});
 
-    std.debug.print(ASCII, .{});
     try drawMain(allocator);
 }
 
