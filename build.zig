@@ -25,7 +25,6 @@ pub fn build(b: *std.Build) void {
     // Requests, events, enums, etc. from newer versions will not be generated,
     // ensuring forwards compatibility with newer protocol xml.
     scanner.generate("wl_compositor", 4);
-    scanner.generate("wl_shm", 1);
     scanner.generate("wl_output", 3);
     scanner.generate("xdg_wm_base", 3);
     scanner.generate("zwlr_layer_shell_v1", 4);

@@ -20,6 +20,8 @@
           wayland
           wayland-protocols
           wayland-scanner
+          egl-wayland
+          libGL
           pkg-config
         ];
 
