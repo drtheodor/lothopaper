@@ -42,7 +42,6 @@ const sleepTime: u64 = std.time.ns_per_s / fps;
 
 // Per-output window state
 const OutputWindow = struct {
-    output: *wl.Output,
     surface: *wl.Surface,
     layerSurface: *zwlr.LayerSurfaceV1,
     eglWindow: EGL.Window = undefined,
@@ -84,6 +83,7 @@ const Context = struct {
     compositor: ?*wl.Compositor = null,
     wm: ?*xdg.WmBase = null,
     layer: ?*zwlr.LayerShellV1 = null,
+
     outputs: [maxOutputs]?*wl.Output = .{null} ** maxOutputs,
     outputCount: usize = 0,
 };
@@ -179,7 +179,6 @@ pub fn main() !void {
 
             // Initialize window slots
             windows[windowCount] = .{
-                .output = out,
                 .surface = surface,
                 .layerSurface = layerSurface,
             };
@@ -314,8 +313,8 @@ fn zwlrLayerListenerPerOutput(
             win.height = @intCast(cfg.height);
 
             std.debug.print(
-                "Configure for output {p}: {} x {}\n",
-                .{ win.output, win.width, win.height },
+                "Configure for output: {} x {}\n",
+                .{ win.width, win.height },
             );
 
             layerSurface.ackConfigure(cfg.serial);
@@ -328,7 +327,7 @@ fn zwlrLayerListenerPerOutput(
             }
         },
         .closed => {
-            std.debug.print("Layer closed for output {p}\n", .{win.output});
+            std.debug.print("Layer closed for output\n", .{});
             win.closed = true;
         },
     }
