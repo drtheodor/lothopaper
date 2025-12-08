@@ -185,7 +185,7 @@ pub const GfxContext = struct {
             tmpSurface,
             null,
             Wayland.LayerShell.Layer.background,
-            "zig-layer-demo-init",
+            "lothopaper-init",
         );
 
         defer tmpLayer.destroy();
