@@ -1,6 +1,7 @@
 .{
     .name = .lothopaper,
     .version = "0.0.0",
+    .minimum_zig_version = "0.15.2",
     .dependencies = .{
         .wayland = .{
             .url = "git+https://github.com/ifreund/zig-wayland#42a9edb1df8efd57cae0d05121ffa94d3df147c2",
