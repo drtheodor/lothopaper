@@ -187,8 +187,8 @@ pub const GfxContext = struct {
             Wayland.LayerShell.Layer.background,
             "lothopaper-init",
         );
-
         defer tmpLayer.destroy();
+
         tmpLayer.setAnchor(.{ .top = true, .bottom = true, .left = true, .right = true });
         tmpLayer.setExclusiveZone(-1);
         tmpSurface.commit();
@@ -261,6 +261,9 @@ pub const GfxContext = struct {
     }
 
     pub inline fn swapBuffers(self: @This(), window: OutputWindow) void {
+        window.surface.damageBuffer(0, 0, window.width, window.height);
+        window.surface.commit();
+
         window.eglWindow.swapBuffers(self.egl);
     }
 
