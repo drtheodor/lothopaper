@@ -218,6 +218,7 @@ pub const GfxContext = struct {
                 "lothopaper",
             );
 
+            layer.setKeyboardInteractivity(.none);
             layer.setAnchor(.{ .top = true, .bottom = true, .left = true, .right = true });
 
             // This is legit z offset idk why they have to be fancy and call it exclusive zone
