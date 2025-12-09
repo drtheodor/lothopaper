@@ -34,7 +34,8 @@ const ASCII = @import("ascii.zig").ASCII;
 
 const params = clap.parseParamsComptime(
     \\-h, --help             Display this help and exit.
-    //\\-c, --config <usize>   Path to the config directory (default: "~/.config/lothopaper/").
+    \\-c, --config           Overrides the config path (default: ~/.config/lothopaper).
+    \\                       If provided with a relative path, it will be resolved relative to the default config folder.
     \\
 );
 
@@ -140,7 +141,6 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
 
     gl.glDisable(gl.GL_DITHER);
     gl.glDisable(gl.GL_BLEND);
-    // gl.glDisable(gl.GL_ALPHA);
     gl.glDisable(gl.GL_DEPTH_TEST);
 
     std.debug.print("Running.\n", .{});
@@ -194,8 +194,7 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
 }
 
 const DEFAULT_VERT_SHADER =
-    \\#version 320 es
-    \\precision highp float;
+    \\#version 330 core
     \\
     \\in vec2 a_Position;
     \\in vec2 a_TexCoord;
@@ -212,8 +211,7 @@ const DEFAULT_VERT_SHADER =
 ;
 
 const DEFAULT_FRAG_SHADER =
-    \\#version 320 es
-    \\precision mediump float;
+    \\#version 330 core
     \\
     \\uniform float Time;
     \\uniform vec4 Resolution;
