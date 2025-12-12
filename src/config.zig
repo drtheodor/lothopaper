@@ -12,9 +12,8 @@ pub const Resource = union(enum) {
 pub const Data = struct {
     fps: usize = 60,
     maxOutputs: usize = 8,
-    resources: []const Resource = &.{.{
-        .image = "./test.png",
-    }},
+    resources: []const Resource = &.{},
+    shadertoy: bool = false,
 };
 
 subpath: []const u8,

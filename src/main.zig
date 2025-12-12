@@ -297,12 +297,41 @@ const DEFAULT_FRAG_SHADER =
     \\}
 ;
 
+const SHADERTOY_FRAG_PREFIX =
+    \\#version 330 core
+    \\#define iTime Time
+    \\#define iResolution Resolution
+    \\out vec4 FragColor;
+    \\uniform float Time;
+    \\uniform vec4 Resolution;
+;
+
+const SHADERTOY_FRAG_SUFFIX =
+    \\void main() {
+    \\    mainImage(FragColor, gl_FragCoord.xy);
+    \\}
+;
+
 fn applyConfigShader(config: Config) !u32 {
     const vertSrc = try config.readConfigString("vert.glsl", DEFAULT_VERT_SHADER);
     defer config.free(vertSrc);
 
-    const fragSrc = try config.readConfigString("frag.glsl", DEFAULT_FRAG_SHADER);
+    const fragSrc = try readFragShader(config);
     defer config.free(fragSrc);
 
-    return try gfx.loadProgram(config.allocator, vertSrc, fragSrc);
+    return gfx.loadProgram(config.allocator, vertSrc, fragSrc) catch |err| {
+        std.debug.print("Failed to load shaders. If it's a shadertoy shader, try turning on shadertoy compat in the config.\n", .{});
+        return err;
+    };
+}
+
+fn readFragShader(config: Config) ![]u8 {
+    const fragSrc = try config.readConfigString("frag.glsl", DEFAULT_FRAG_SHADER);
+
+    if (config.data.shadertoy) {
+        defer config.allocator.free(fragSrc);
+        return std.mem.concat(config.allocator, u8, &.{ SHADERTOY_FRAG_PREFIX, fragSrc, SHADERTOY_FRAG_SUFFIX });
+    }
+
+    return fragSrc;
 }
