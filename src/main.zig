@@ -34,8 +34,7 @@ const ASCII = @import("ascii.zig").ASCII;
 
 const params = clap.parseParamsComptime(
     \\-h, --help             Display this help and exit.
-    \\-c, --config           Overrides the config path (default: ~/.config/lothopaper).
-    \\                       If provided with a relative path, it will be resolved relative to the default config folder.
+    \\-c, --config <str>     Overrides the config folder path, relative to the default (~/.config/lothopaper).
     \\
 );
 
@@ -63,17 +62,27 @@ pub fn main() !void {
     if (res.args.help != 0)
         return clap.helpToFile(.stderr(), clap.Help, &params, .{});
 
-    try drawMain(allocator);
+    const subpath = subpath: {
+        if (res.args.config) |subpathOverride| {
+            break :subpath subpathOverride;
+        } else break :subpath ".";
+    };
+
+    const config = try Config.readConfig(allocator, subpath) orelse {
+        std.debug.print("Failed to create config.\n", .{});
+        return;
+    };
+
+    defer config.deinit();
+
+    try drawMain(allocator, config);
 }
 
-pub fn drawMain(allocator: std.mem.Allocator) !void {
-    const config = try Config.readConfig(allocator);
-    defer config.deinit(allocator);
-
-    var context = try gfx.GfxContext.init(allocator, config.maxOutputs);
+pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
+    var context = try gfx.GfxContext.init(allocator, config.data.maxOutputs);
     defer context.deinit(allocator);
 
-    const programID = applyConfigShader(allocator) catch |err| {
+    const programID = applyConfigShader(config) catch |err| {
         std.debug.print("Failed to apply shaders: {}\n", .{err});
         return;
     };
@@ -84,10 +93,10 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
 
     var textureId: ?u32 = null;
 
-    for (config.resources) |resource| {
+    for (config.data.resources) |resource| {
         switch (resource) {
             .image => |path| {
-                const imgPath = try Config.getConfigPath(allocator, path);
+                const imgPath = try config.getConfigPath(path);
                 defer allocator.free(imgPath);
 
                 var testFile = std.fs.cwd().openFile(imgPath, .{}) catch |err| switch (err) {
@@ -146,7 +155,7 @@ pub fn drawMain(allocator: std.mem.Allocator) !void {
     std.debug.print("Running.\n", .{});
 
     const running = true;
-    const sleepTime: u64 = std.time.ns_per_s / config.fps;
+    const sleepTime: u64 = std.time.ns_per_s / config.data.fps;
     const startTime = std.time.nanoTimestamp();
 
     // Main rendering loop
@@ -288,12 +297,12 @@ const DEFAULT_FRAG_SHADER =
     \\}
 ;
 
-fn applyConfigShader(allocator: std.mem.Allocator) !u32 {
-    const vertSrc = try Config.readConfigString(allocator, "vert.glsl", DEFAULT_VERT_SHADER);
-    defer allocator.free(vertSrc);
+fn applyConfigShader(config: Config) !u32 {
+    const vertSrc = try config.readConfigString("vert.glsl", DEFAULT_VERT_SHADER);
+    defer config.free(vertSrc);
 
-    const fragSrc = try Config.readConfigString(allocator, "frag.glsl", DEFAULT_FRAG_SHADER);
-    defer allocator.free(fragSrc);
+    const fragSrc = try config.readConfigString("frag.glsl", DEFAULT_FRAG_SHADER);
+    defer config.free(fragSrc);
 
-    return try gfx.loadProgram(allocator, vertSrc, fragSrc);
+    return try gfx.loadProgram(config.allocator, vertSrc, fragSrc);
 }

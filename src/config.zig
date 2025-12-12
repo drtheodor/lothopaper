@@ -9,18 +9,25 @@ pub const Resource = union(enum) {
     image: []const u8,
 };
 
-fps: usize = 60,
-maxOutputs: usize = 8,
-resources: []const Resource = &.{.{
-    .image = "./test.png",
-}},
+pub const Data = struct {
+    fps: usize = 60,
+    maxOutputs: usize = 8,
+    resources: []const Resource = &.{.{
+        .image = "./test.png",
+    }},
+};
+
+subpath: []const u8,
+data: Data,
+allocator: mem.Allocator,
 
 // TODO: improve errors
-pub fn readConfigString(allocator: mem.Allocator, name: []const u8, def: []const u8) ![]u8 {
-    const path = try getConfigPath(allocator, name);
+pub fn readConfigString(self: Self, name: []const u8, def: []const u8) ![]u8 {
+    const allocator = self.allocator;
+    const path = try self.getConfigPath(name);
     defer allocator.free(path);
 
-    return try readOrCreateFile(allocator, path, def, struct {
+    return try readOrCreateFile(self.allocator, path, def, struct {
         fn default(writer: *std.Io.Writer, def2: []const u8) error{WriteFailed}!void {
             _ = try writer.write(def2);
         }
@@ -50,13 +57,26 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
     return readOrCreateFile(allocator, path, ctx, def);
 }
 
-pub fn readConfig(allocator: std.mem.Allocator) !Self {
-    try ensureConfigPath(allocator);
+pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8) !?Self {
+    var self: Self = .{
+        .allocator = allocator,
+        .subpath = subpath,
+        .data = undefined,
+    };
 
-    const path = try getConfigPath(allocator, "config.zon");
+    try self.ensureConfigPath();
+
+    const path = try self.getConfigPath("config.zon");
     defer allocator.free(path);
 
-    const src = try readOrCreateFile(allocator, path, {}, writeDefaultConfig);
+    const src = readOrCreateFile(allocator, path, {}, writeDefaultConfig) catch |err| switch (err) {
+        error.FileNotFound => {
+            std.debug.print("Couldn't create file {s}\n", .{path});
+            return null;
+        },
+        else => return err,
+    };
+
     std.debug.print("Config: {s}\n", .{src});
     defer allocator.free(src);
 
@@ -66,7 +86,7 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
     var diag: zon.Diagnostics = .{};
     defer diag.deinit(allocator);
 
-    const res = zon.fromSlice(Self, allocator, terminated, &diag, .{
+    const data = zon.fromSlice(Data, allocator, terminated, &diag, .{
         .free_on_error = true,
         .ignore_unknown_fields = false,
     });
@@ -79,29 +99,35 @@ pub fn readConfig(allocator: std.mem.Allocator) !Self {
     try diag.format(stdout);
     try stdout.flush();
 
-    return res;
+    self.data = try data;
+    return self;
 }
 
-pub fn deinit(self: @This(), allocator: mem.Allocator) void {
-    zon.free(allocator, self);
+pub fn deinit(self: @This()) void {
+    zon.free(self.allocator, self.data);
 }
 
-fn ensureConfigPath(allocator: mem.Allocator) !void {
-    const base = try getConfigBase(allocator);
+fn ensureConfigPath(self: Self) !void {
+    const allocator = self.allocator;
+
+    const base = try self.getConfigBase();
     defer allocator.free(base);
 
     fs.cwd().makeDir(base) catch {};
 }
 
 fn writeDefaultConfig(writer: *std.Io.Writer, _: void) error{WriteFailed}!void {
-    const val: Self = .{};
+    const val: Data = .{};
 
     std.zon.stringify.serialize(val, .{}, writer) catch {
         std.debug.print("Failed to serialize default config.\n", .{});
     };
 }
 
-fn getConfigBase(allocator: mem.Allocator) ![]u8 {
+fn getConfigBase(self: Self) ![]u8 {
+    const allocator = self.allocator;
+    const subpath = self.subpath;
+
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
 
@@ -109,15 +135,18 @@ fn getConfigBase(allocator: mem.Allocator) ![]u8 {
         home,
         ".config",
         "lothopaper",
+        subpath,
     };
 
     return try fs.path.join(allocator, &parts);
 }
 
 // Build ~/.config/lothopaper/config/<filename>
-pub fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
+pub fn getConfigPath(self: Self, filename: []const u8) ![]u8 {
+    const allocator = self.allocator;
+
     // Get the environment variable "$HOME"
-    const base = try getConfigBase(allocator);
+    const base = try self.getConfigBase();
     defer allocator.free(base);
 
     const parts = [_][]const u8{
@@ -126,4 +155,8 @@ pub fn getConfigPath(allocator: mem.Allocator, filename: []const u8) ![]u8 {
     };
 
     return try fs.path.join(allocator, &parts);
+}
+
+pub fn free(self: Self, data: anytype) void {
+    self.allocator.free(data);
 }
