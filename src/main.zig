@@ -30,7 +30,7 @@ const vertices = [_]f32{
     -1.0, 3.0,  0.0,
 };
 
-const ASCII = @import("ascii.zig").ASCII;
+const ascii = @import("ascii.zig");
 
 const params = clap.parseParamsComptime(
     \\-h, --help             Display this help and exit.
@@ -39,7 +39,7 @@ const params = clap.parseParamsComptime(
 );
 
 pub fn main() !void {
-    std.debug.print(ASCII, .{});
+    std.debug.print(ascii.ASCII, .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -73,6 +73,11 @@ pub fn main() !void {
         return;
     };
 
+    if (config.data.scale > 1) {
+        std.debug.print("Scale can't be bigger than 1.\n", .{});
+        return error.Perish;
+    }
+
     defer config.deinit();
 
     try drawMain(allocator, config);
@@ -89,6 +94,7 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
 
     const timeLoc = gl.glGetUniformLocation(programID, "Time");
     const resLoc = gl.glGetUniformLocation(programID, "Resolution");
+    const mouseLoc = gl.glGetUniformLocation(programID, "Mouse");
     const texLoc = gl.glGetUniformLocation(programID, "uTexture");
 
     var textureId: ?u32 = null;
@@ -155,6 +161,13 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     std.debug.print("Running.\n", .{});
 
     const running = true;
+    const shouldNotScale = config.data.scale == 1;
+
+    const filter: gl.GLenum = switch (config.data.scaleMode) {
+        .LINEAR => gl.GL_LINEAR,
+        .NEAREST => gl.GL_NEAREST,
+    };
+
     const sleepTime: u64 = std.time.ns_per_s / config.data.fps;
     const startTime = std.time.nanoTimestamp();
 
@@ -163,11 +176,14 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
         const tnow = std.time.nanoTimestamp();
 
         // FIXME: this is horrid. Why would anyone want time in seconds? Shouldn't we use ns or ms?
-        const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s));
+        const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s)) * config.data.timeFactor;
 
         // Render a single frame per window
         for (context.getWindows()) |window| {
             if (window.invalid()) continue;
+
+            const width: i32 = if (shouldNotScale) window.width else @intFromFloat(@as(f32, @floatFromInt(window.width)) * config.data.scale);
+            const height: i32 = if (shouldNotScale) window.height else @intFromFloat(@as(f32, @floatFromInt(window.height)) * config.data.scale);
 
             context.makeCurrent(window);
 
@@ -177,12 +193,13 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
             gl.glEnableVertexAttribArray(0);
             gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, null);
 
-            gl.glViewport(0, 0, window.width, window.height);
+            gl.glViewport(0, 0, width, height);
             gl.glClearColor(1.0, 1.0, 1.0, 1.0);
             gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
             gl.glUniform1f(timeLoc, elapsedSec);
-            gl.glUniform4f(resLoc, @floatFromInt(window.width), @floatFromInt(window.height), 0, 0);
+            gl.glUniform4f(mouseLoc, 0, 0, 0, 0);
+            gl.glUniform4f(resLoc, @floatFromInt(width), @floatFromInt(height), 0, 0);
 
             if (textureId) |id| {
                 gl.glActiveTexture(gl.GL_TEXTURE0);
@@ -193,6 +210,10 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
             gl.glBindVertexArray(vao);
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
 
+            if (!shouldNotScale) {
+                gl.glBlitFramebuffer(0, 0, width, height, 0, 0, window.width, window.height, gl.GL_COLOR_BUFFER_BIT, filter);
+            }
+
             context.swapBuffers(window);
         }
 
@@ -202,118 +223,8 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     std.debug.print("Exit.\n", .{});
 }
 
-const DEFAULT_VERT_SHADER =
-    \\#version 330 core
-    \\
-    \\in vec2 a_Position;
-    \\in vec2 a_TexCoord;
-    \\
-    \\out vec2 v_TexCoord;
-    \\
-    \\void main() {
-    \\    // Pass texture coordinates directly
-    \\    v_TexCoord = a_TexCoord;
-    \\
-    \\    // Set the final position directly, no matrix math needed
-    \\    gl_Position = vec4(a_Position, 0.0, 1.0);
-    \\}
-;
-
-const DEFAULT_FRAG_SHADER =
-    \\#version 330 core
-    \\
-    \\uniform float Time;
-    \\uniform vec4 Resolution;
-    \\uniform sampler2D uTexture;
-    \\
-    \\out vec4 FragColor;
-    \\
-    \\vec4 background(vec2 fragCoord, vec2 screenDims) {
-    \\    // Normalized coordinates [0,1]
-    \\    vec2 uv = fragCoord / screenDims;
-    \\
-    \\    // Simple vertical gradient: dark at bottom, slightly lighter at top
-    \\    vec3 topColor = vec3(0.05, 0.10, 0.25); // dark bluish
-    \\    vec3 bottomColor = vec3(0.00, 0.02, 0.10); // almost black-blue
-    \\
-    \\    float t = uv.y;
-    \\    vec3 col = mix(bottomColor, topColor, t);
-    \\
-    \\    // optional subtle vignette
-    \\    vec2 c = uv - 0.5;
-    \\    float vignette = 1.0 - dot(c, c) * 0.8;
-    \\    vignette = clamp(vignette, 0.0, 1.0);
-    \\
-    \\    col *= vignette;
-    \\
-    \\    return vec4(col, 1.0);
-    \\}
-    \\
-    \\void main(void) {
-    \\    vec2 screenDims = Resolution.xy;
-    \\
-    \\    ivec2 textureDims_i = textureSize(uTexture, 0);
-    \\    vec2 textureDims = vec2(textureDims_i) * 2.0;
-    \\
-    \\    vec2 maxPos = screenDims - textureDims;
-    \\
-    \\    // If the texture is larger than the screen, just fullscreen it
-    \\    if (maxPos.x < 0.0 || maxPos.y < 0.0) {
-    \\        vec2 uv = gl_FragCoord.xy / screenDims;
-    \\        vec4 tex = texture(uTexture, uv);
-    \\        FragColor = tex;
-    \\        return;
-    \\    }
-    \\
-    \\    float speedX = 0.04;
-    \\    float speedY = 0.02;
-    \\
-    \\    float timeX = Time * speedX;
-    \\    float timeY = Time * speedY;
-    \\
-    \\    float normalizedPosX = abs(fract(timeX) * 2.0 - 1.0);
-    \\    float normalizedPosY = abs(fract(timeY) * 2.0 - 1.0);
-    \\
-    \\    vec2 ImagePosition = vec2(
-    \\            normalizedPosX * maxPos.x,
-    \\            normalizedPosY * maxPos.y
-    \\        );
-    \\
-    \\    vec2 fragCoord = gl_FragCoord.xy;
-    \\    vec2 relativeCoord = fragCoord - ImagePosition;
-    \\
-    \\    // Outside the image rect → gradient background
-    \\    if (relativeCoord.x < 0.0 || relativeCoord.y < 0.0 ||
-    \\            relativeCoord.x > textureDims.x || relativeCoord.y > textureDims.y) {
-    \\        FragColor = background(fragCoord, screenDims);
-    \\        return;
-    \\    }
-    \\
-    \\    vec2 uv = relativeCoord / textureDims;
-    \\    uv.y = 1.0 - uv.y;
-    \\
-    \\    vec4 tex = texture(uTexture, uv);
-    \\    FragColor = tex;
-    \\}
-;
-
-const SHADERTOY_FRAG_PREFIX =
-    \\#version 330 core
-    \\#define iTime Time
-    \\#define iResolution Resolution
-    \\out vec4 FragColor;
-    \\uniform float Time;
-    \\uniform vec4 Resolution;
-;
-
-const SHADERTOY_FRAG_SUFFIX =
-    \\void main() {
-    \\    mainImage(FragColor, gl_FragCoord.xy);
-    \\}
-;
-
 fn applyConfigShader(config: Config) !u32 {
-    const vertSrc = try config.readConfigString("vert.glsl", DEFAULT_VERT_SHADER);
+    const vertSrc = try config.readConfigString("vert.glsl", ascii.DEFAULT_VERT_SHADER);
     defer config.free(vertSrc);
 
     const fragSrc = try readFragShader(config);
@@ -326,11 +237,15 @@ fn applyConfigShader(config: Config) !u32 {
 }
 
 fn readFragShader(config: Config) ![]u8 {
-    const fragSrc = try config.readConfigString("frag.glsl", DEFAULT_FRAG_SHADER);
+    const fragSrc = try config.readConfigString("frag.glsl", ascii.DEFAULT_FRAG_SHADER);
 
     if (config.data.shadertoy) {
         defer config.allocator.free(fragSrc);
-        return std.mem.concat(config.allocator, u8, &.{ SHADERTOY_FRAG_PREFIX, fragSrc, SHADERTOY_FRAG_SUFFIX });
+        return std.mem.concat(config.allocator, u8, &.{
+            ascii.SHADERTOY_FRAG_PREFIX,
+            fragSrc,
+            ascii.SHADERTOY_FRAG_SUFFIX,
+        });
     }
 
     return fragSrc;

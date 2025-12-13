@@ -9,11 +9,19 @@ pub const Resource = union(enum) {
     image: []const u8,
 };
 
+pub const ScaleMode = enum {
+    LINEAR,
+    NEAREST,
+};
+
 pub const Data = struct {
     fps: usize = 60,
     maxOutputs: usize = 8,
     resources: []const Resource = &.{},
     shadertoy: bool = false,
+    timeFactor: f32 = 1,
+    scale: f32 = 1,
+    scaleMode: ScaleMode = .LINEAR,
 };
 
 subpath: []const u8,
