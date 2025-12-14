@@ -134,8 +134,11 @@ pub const Wayland = @import("platform/wl.zig");
 pub const EGL = @import("platform/egl.zig");
 
 pub const OutputWindow = struct {
+    const Self = @This();
+
     surface: *Wayland.Surface,
     layerSurface: *Wayland.LayerSurface,
+    ctx: *GfxContext,
     eglWindow: EGL.Window = undefined,
     width: i32 = 0,
     height: i32 = 0,
@@ -143,26 +146,78 @@ pub const OutputWindow = struct {
     configured: bool = false,
     closed: bool = false,
 
-    inline fn createWindow(self: *@This(), egl: EGL) void {
-        self.eglWindow = EGL.Window.init(egl, @ptrCast(self.surface), self.width, self.height);
+    inline fn createWindow(self: *Self) void {
+        self.eglWindow = EGL.Window.init(self.ctx.egl, @ptrCast(self.surface), self.width, self.height);
     }
 
-    inline fn valid(self: @This()) bool {
+    inline fn valid(self: Self) bool {
         return self.configured and !self.closed and self.eglWindow.valid();
     }
 
-    pub inline fn invalid(self: @This()) bool {
+    pub inline fn invalid(self: Self) bool {
         return !self.valid();
     }
 
-    pub inline fn deinit(self: @This(), egl: EGL) void {
+    pub inline fn deinit(self: Self, egl: EGL) void {
         self.eglWindow.deinit(egl);
         self.layerSurface.destroy();
         self.surface.destroy();
     }
 };
 
+pub const Pointer = struct {
+    const Self = @This();
+
+    surface: ?*Wayland.Surface = null,
+    pointer: *Wayland.Pointer,
+    x: f32 = 0,
+    y: f32 = 0,
+    left: bool = false,
+    right: bool = false,
+
+    fn init(p: *Wayland.Pointer) Self {
+        return .{
+            .pointer = p,
+        };
+    }
+
+    pub fn subscribe(self: *Self) void {
+        self.pointer.setListener(*Self, listener, self);
+    }
+
+    pub inline fn isActiveIn(self: Self, window: OutputWindow) bool {
+        return self.surface == window.surface;
+    }
+
+    fn listener(pointer: *Wayland.Pointer, event: Wayland.Pointer.Event, self: *Self) void {
+        _ = pointer;
+        switch (event) {
+            .enter => |enter| {
+                self.surface = enter.surface;
+                self.x = @as(f32, @floatCast(enter.surface_x.toDouble()));
+                self.y = @as(f32, @floatCast(enter.surface_y.toDouble()));
+            },
+            .motion => |motion| {
+                self.x = @as(f32, @floatCast(motion.surface_x.toDouble()));
+                self.y = @as(f32, @floatCast(motion.surface_y.toDouble()));
+            },
+            .button => |button| {
+                const val = if (button.state == .pressed) true else false;
+
+                switch (button.button) {
+                    0x110 => self.left = val,
+                    0x111 => self.right = val,
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+};
+
 pub const GfxContext = struct {
+    const Self = @This();
+
     context: Wayland,
     egl: EGL,
     // Create a layer surface and EGL window per output
@@ -175,8 +230,9 @@ pub const GfxContext = struct {
         NoWindows,
     } || Wayland.InitError || EGL.InitError;
 
-    pub fn init(allocator: std.mem.Allocator, maxOutputs: usize) InitError!@This() {
-        const context = try Wayland.init(allocator, maxOutputs);
+    pub fn init(allocator: std.mem.Allocator, maxOutputs: usize) InitError!Self {
+        var context = try Wayland.init(allocator, maxOutputs);
+        context.postInit();
 
         var tmpSurface = try context.compositor.createSurface();
         defer tmpSurface.destroy();
@@ -195,17 +251,17 @@ pub const GfxContext = struct {
 
         if (context.display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-        var result: @This() = .{
+        var result: Self = .{
             .context = context,
             .egl = try EGL.init(@ptrCast(tmpSurface), @ptrCast(context.display)),
             .windows = try allocator.alloc(OutputWindow, maxOutputs),
         };
-        try result.postInit();
 
+        try result.postInit();
         return result;
     }
 
-    fn postInit(self: *@This()) InitError!void {
+    fn postInit(self: *Self) InitError!void {
         for (self.outputs()) |out| {
             if (self.windowCount >= self.context.outputs.len) break;
 
@@ -228,6 +284,7 @@ pub const GfxContext = struct {
             const window = self.addWindow(.{
                 .surface = surface,
                 .layerSurface = layer,
+                .ctx = self,
             });
 
             // Per-output listener
@@ -243,13 +300,9 @@ pub const GfxContext = struct {
             std.debug.print("No output windows created.\n", .{});
             return error.NoWindows;
         }
-
-        for (self.getWindows()) |*window| {
-            window.createWindow(self.egl);
-        }
     }
 
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         for (self.getWindows()) |window| {
             window.deinit(self.egl);
         }
@@ -260,22 +313,27 @@ pub const GfxContext = struct {
         self.context.deinit(allocator);
     }
 
-    pub inline fn swapBuffers(self: @This(), window: OutputWindow) void {
-        // window.surface.damageBuffer(0, 0, window.width, window.height);
-        // window.surface.commit();
+    pub inline fn pointer(self: Self) error{NoPointer}!Pointer {
+        if (self.context.pointer) |ptr| {
+            return Pointer.init(ptr);
+        }
 
+        return error.NoPointer;
+    }
+
+    pub inline fn swapBuffers(self: Self, window: OutputWindow) void {
         window.eglWindow.swapBuffers(self.egl);
     }
 
-    pub inline fn makeCurrent(self: @This(), window: OutputWindow) void {
+    pub inline fn makeCurrent(self: Self, window: OutputWindow) void {
         window.eglWindow.makeCurrent(self.egl);
     }
 
-    pub inline fn outputs(self: @This()) []*Wayland.Output {
+    pub inline fn outputs(self: Self) []*Wayland.Output {
         return self.context.outputs[0..self.context.outputCount];
     }
 
-    pub inline fn poll(self: @This()) Wayland.RoundtripError!void {
+    pub inline fn poll(self: Self) Wayland.RoundtripError!void {
         // pending wayland events
         const disp = self.display.dispatchPending();
 
@@ -288,15 +346,15 @@ pub const GfxContext = struct {
         _ = self.display.flush();
     }
 
-    pub inline fn roundtrip(self: @This()) std.c.E {
+    pub inline fn roundtrip(self: Self) std.c.E {
         return self.context.display.roundtrip();
     }
 
-    pub inline fn getWindows(self: *@This()) []OutputWindow {
+    pub inline fn getWindows(self: *Self) []OutputWindow {
         return self.windows[0..self.windowCount];
     }
 
-    inline fn addWindow(self: *@This(), window: OutputWindow) *OutputWindow {
+    inline fn addWindow(self: *Self, window: OutputWindow) *OutputWindow {
         self.windows[self.windowCount] = window;
         defer self.windowCount += 1;
 
@@ -326,6 +384,7 @@ pub const GfxContext = struct {
                     win.eglWindow.resize(win.width, win.height);
                 } else {
                     win.configured = true;
+                    win.createWindow();
                 }
             },
             .closed => {

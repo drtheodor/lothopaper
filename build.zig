@@ -39,6 +39,7 @@ pub fn build(b: *std.Build) void {
 
     scanner.generate("wl_compositor", 4);
     scanner.generate("wl_output", 3);
+    scanner.generate("wl_seat", 3);
     scanner.generate("xdg_wm_base", 3);
     scanner.generate("zwlr_layer_shell_v1", 4);
 

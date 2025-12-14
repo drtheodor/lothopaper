@@ -82,7 +82,7 @@ pub const DEFAULT_FRAG_SHADER =
     \\    return vec4(col, 1.0);
     \\}
     \\
-    \\void main(void) {
+    \\void main() {
     \\    vec2 screenDims = Resolution.xy;
     \\
     \\    ivec2 textureDims_i = textureSize(uTexture, 0);
@@ -133,12 +133,13 @@ pub const DEFAULT_FRAG_SHADER =
 pub const SHADERTOY_FRAG_PREFIX =
     \\#version 330 core
     \\#define iTime Time
-    \\#define iMouse Mouse
     \\#define iResolution Resolution
     \\out vec4 FragColor;
     \\uniform float Time;
     \\uniform vec4 Resolution;
-    \\uniform vec4 Mouse;
+    \\uniform vec2 Mouse;
+    \\uniform ivec2 MouseState;
+    \\vec4 iMouse = vec4(Mouse.xy, MouseState.xy);
     \\
 ;
 

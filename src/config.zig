@@ -14,6 +14,12 @@ pub const ScaleMode = enum {
     NEAREST,
 };
 
+pub const Permissions = packed struct {
+    mouse: bool = false,
+    windows: bool = false,
+    keyboard: bool = false,
+};
+
 pub const Data = struct {
     fps: usize = 60,
     maxOutputs: usize = 8,
@@ -22,6 +28,8 @@ pub const Data = struct {
     timeFactor: f32 = 1,
     scale: f32 = 1,
     scaleMode: ScaleMode = .LINEAR,
+    permissions: Permissions = .{},
+    backgroundColor: [4]f32 = .{ 0, 0, 0, 1 },
 };
 
 subpath: []const u8,
@@ -64,14 +72,16 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
     return readOrCreateFile(allocator, path, ctx, def);
 }
 
-pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8) !?Self {
+pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8, init: bool) !?Self {
     var self: Self = .{
         .allocator = allocator,
         .subpath = subpath,
         .data = undefined,
     };
 
-    try self.ensureConfigPath();
+    if (init) {
+        try self.ensureConfigPath();
+    }
 
     const path = try self.getConfigPath("config.zon");
     defer allocator.free(path);
@@ -79,7 +89,7 @@ pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8) !?Self {
     const src = readOrCreateFile(allocator, path, {}, writeDefaultConfig) catch |err| switch (err) {
         error.FileNotFound => {
             std.debug.print("Couldn't create file {s}\n", .{path});
-            return null;
+            return err;
         },
         else => return err,
     };
@@ -107,6 +117,19 @@ pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8) !?Self {
     try stdout.flush();
 
     self.data = try data;
+
+    if (self.data.scale > 1) {
+        std.debug.print("Scale can't be bigger than 1.\n", .{});
+        return error.ConfigValidation;
+    }
+
+    for (self.data.backgroundColor) |c| {
+        if (c < 0 or c > 1) {
+            std.debug.print("Background color must be in [0; 1] range.", .{});
+            return error.ConfigValidation;
+        }
+    }
+
     return self;
 }
 
