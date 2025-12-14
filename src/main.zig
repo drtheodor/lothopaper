@@ -182,7 +182,7 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     };
     const bgRed, const bgBlue, const bgGreen, const bgAlpha = config.data.backgroundColor;
 
-    const sleepTime: u64 = std.time.ns_per_s / config.data.fps;
+    const sleepTime: u64 = if (config.data.fps > 0) std.time.ns_per_s / config.data.fps else std.math.maxInt(u64);
     const startTime = std.time.nanoTimestamp();
 
     gl.glDisable(gl.GL_DITHER);
