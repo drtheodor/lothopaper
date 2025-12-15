@@ -22,8 +22,9 @@ pub const RenderMode = enum {
 
 pub const Permissions = packed struct {
     mouse: bool = false,
-    windows: bool = false,
-    keyboard: bool = false,
+    // TODO:
+    // windows: bool = false,
+    // keyboard: bool = false,
 };
 
 pub const Performance = struct {
