@@ -189,6 +189,10 @@ pub const Pointer = struct {
         return self.surface == window.surface;
     }
 
+    pub inline fn isActive(self: Self) bool {
+        return self.surface != null;
+    }
+
     fn listener(pointer: *Wayland.Pointer, event: Wayland.Pointer.Event, self: *Self) void {
         _ = pointer;
         switch (event) {
@@ -208,6 +212,11 @@ pub const Pointer = struct {
                     0x110 => self.left = val,
                     0x111 => self.right = val,
                     else => {},
+                }
+            },
+            .leave => |leave| {
+                if (self.surface == leave.surface) {
+                    self.surface = null;
                 }
             },
             else => {},

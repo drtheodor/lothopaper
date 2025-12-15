@@ -85,6 +85,10 @@ const vertices = [_]f32{
     -1.0, 3.0,  0.0,
 };
 
+inline fn fpsToDelay(fps: usize) u64 {
+    return if (fps > 0) std.time.ns_per_s / fps else std.math.maxInt(u64);
+}
+
 pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     var context = try gfx.GfxContext.init(allocator, config.data.maxOutputs);
     defer context.deinit(allocator);
@@ -182,7 +186,11 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     };
     const bgRed, const bgBlue, const bgGreen, const bgAlpha = config.data.backgroundColor;
 
-    const sleepTime: u64 = if (config.data.fps > 0) std.time.ns_per_s / config.data.fps else std.math.maxInt(u64);
+    const normalSleepTime: u64 = fpsToDelay(config.data.fps);
+    const slowSleepTime: u64 = fpsToDelay(config.data.performance.limitedFps);
+
+    var sleepTime = normalSleepTime;
+
     const startTime = std.time.nanoTimestamp();
 
     gl.glDisable(gl.GL_DITHER);
@@ -193,10 +201,11 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
         gl.glDisable(gl.GL_ALPHA);
     }
 
+    var tnow = std.time.nanoTimestamp();
+
     // Main rendering loop
     while (running) {
         _ = context.context.display.dispatch();
-        const tnow = std.time.nanoTimestamp();
 
         // FIXME: this is horrid. Why would anyone want time in seconds? Shouldn't we use ns or ms?
         const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s)) * config.data.timeFactor;
@@ -250,7 +259,27 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
             context.swapBuffers(window);
         }
 
-        std.Thread.sleep(sleepTime);
+        defer tnow = std.time.nanoTimestamp();
+
+        if (mouseHandler != null and config.data.performance.onHover != .IGNORE) {
+            if (mouseHandler) |*mouse| {
+                switch (config.data.performance.onHover) {
+                    .LIMIT => {
+                        sleepTime = if (mouse.isActive()) normalSleepTime else slowSleepTime;
+                        std.Thread.sleep(sleepTime);
+                    },
+                    .WAIT => {
+                        while (!mouse.isActive()) {
+                            std.Thread.sleep(sleepTime);
+                            _ = context.context.display.dispatch();
+                        }
+                    },
+                    else => {},
+                }
+            }
+        } else {
+            std.Thread.sleep(sleepTime);
+        }
     }
 
     std.debug.print("Exit.\n", .{});

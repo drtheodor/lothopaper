@@ -146,7 +146,6 @@ fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, ctx: *Self) void {
                 };
 
                 ctx.pointer = ptr;
-                std.debug.print("Pointer: {any} for {*}; thread: {}.\n", .{ ctx.pointer, ctx, std.Thread.getCurrentId() });
             }
         },
         else => {},

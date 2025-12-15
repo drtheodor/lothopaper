@@ -14,10 +14,21 @@ pub const ScaleMode = enum {
     NEAREST,
 };
 
+pub const RenderMode = enum {
+    LIMIT,
+    IGNORE,
+    WAIT,
+};
+
 pub const Permissions = packed struct {
     mouse: bool = false,
     windows: bool = false,
     keyboard: bool = false,
+};
+
+pub const Performance = struct {
+    onHover: RenderMode = .LIMIT,
+    limitedFps: usize = 30,
 };
 
 pub const Data = struct {
@@ -29,6 +40,7 @@ pub const Data = struct {
     scale: f32 = 1,
     scaleMode: ScaleMode = .LINEAR,
     permissions: Permissions = .{},
+    performance: Performance = .{},
     backgroundColor: [4]f32 = .{ 0, 0, 0, 1 },
 };
 
