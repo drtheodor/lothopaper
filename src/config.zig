@@ -45,7 +45,7 @@ pub const Data = struct {
     backgroundColor: [4]f32 = .{ 0, 0, 0, 1 },
 };
 
-subpath: []const u8,
+subpath: ?[]const u8,
 data: Data,
 allocator: mem.Allocator,
 
@@ -85,7 +85,7 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
     return readOrCreateFile(allocator, path, ctx, def);
 }
 
-pub fn readConfig(allocator: std.mem.Allocator, subpath: []const u8, init: bool) !?Self {
+pub fn readConfig(allocator: std.mem.Allocator, subpath: ?[]const u8, init: bool) !?Self {
     var self: Self = .{
         .allocator = allocator,
         .subpath = subpath,
@@ -169,7 +169,7 @@ fn writeDefaultConfig(writer: *std.Io.Writer, _: void) error{WriteFailed}!void {
 
 fn getConfigBase(self: Self) ![]u8 {
     const allocator = self.allocator;
-    const subpath = self.subpath;
+    const subpath = self.subpath orelse "";
 
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);

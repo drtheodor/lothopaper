@@ -60,7 +60,7 @@ pub fn main() !void {
     const configSubpath, const initConfig = subpath: {
         if (res.args.config) |subpathOverride| {
             break :subpath .{ subpathOverride, res.args.init != 0 };
-        } else break :subpath .{ ".", true };
+        } else break :subpath .{ null, true };
     };
 
     const config = Config.readConfig(allocator, configSubpath, initConfig) catch |err| switch (err) {
