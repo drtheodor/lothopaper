@@ -26,3 +26,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: zig-out/bin/*
+      - name: Nuke Caches
+        run: |
+          rm -rf ~/.cache/zig
+          rm -rf ./zig-out

@@ -205,9 +205,7 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
 
     // Main rendering loop
     while (running) {
-        context.poll() catch |err| {
-            std.debug.print("dispatchPending error: {}\n", .{err});
-        };
+        try context.poll();
 
         // FIXME: this is horrid. Why would anyone want time in seconds? Shouldn't we use ns or ms?
         const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s)) * config.data.timeFactor;
@@ -273,9 +271,7 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
                     .WAIT => {
                         while (!mouse.isActive()) {
                             std.Thread.sleep(sleepTime);
-                            context.poll() catch |err| {
-                                std.debug.print("dispatchPending error: {}\n", .{err});
-                            };
+                            try context.poll();
                         }
                     },
                     else => {},
