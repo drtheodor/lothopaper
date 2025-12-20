@@ -344,7 +344,7 @@ pub const GfxContext = struct {
 
     pub inline fn poll(self: Self) Wayland.RoundtripError!void {
         // pending wayland events
-        const disp = self.display.dispatchPending();
+        const disp = self.context.display.dispatchPending();
 
         if (disp != .SUCCESS) {
             std.debug.print("dispatchPending error: {}\n", .{disp});
@@ -352,7 +352,7 @@ pub const GfxContext = struct {
         }
 
         // flush requests to compositor
-        _ = self.display.flush();
+        _ = self.context.display.flush();
     }
 
     pub inline fn roundtrip(self: Self) std.c.E {
