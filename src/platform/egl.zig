@@ -28,11 +28,11 @@ pub const InitError = error{
 
 pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType) InitError!Self {
     // EGL init (shared for all outputs)
-    const eglDisplay = c.eglGetDisplay(display);
+    const egl_display = c.eglGetDisplay(display);
     var major: c_int = 0;
     var minor: c_int = 0;
 
-    if (c.eglInitialize(eglDisplay, &major, &minor) == 0)
+    if (c.eglInitialize(egl_display, &major, &minor) == 0)
         return error.EGLInitFailed;
 
     _ = c.eglBindAPI(c.EGL_OPENGL_API);
@@ -51,14 +51,14 @@ pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType)
 
     var config: c.EGLConfig = undefined;
     var num: c.EGLint = 0;
-    _ = c.eglChooseConfig(eglDisplay, &attribs, &config, 1, &num);
+    _ = c.eglChooseConfig(egl_display, &attribs, &config, 1, &num);
 
     // Shared gl context for all displays
     const ctxAttribs = [_]c.EGLint{
         c.EGL_NONE,
     };
-    const eglContext = c.eglCreateContext(
-        eglDisplay,
+    const egl_context = c.eglCreateContext(
+        egl_display,
         config,
         c.EGL_NO_CONTEXT,
         &ctxAttribs,
@@ -70,20 +70,20 @@ pub fn init(tempSurface: ?*c.struct_wl_surface, display: c.EGLNativeDisplayType)
         defer _ = c.wl_egl_window_destroy(tmp_egl_window);
 
         const tmp_egl_surface = c.eglCreateWindowSurface(
-            eglDisplay,
+            egl_display,
             config,
             @intFromPtr(tmp_egl_window),
             null,
         );
-        defer _ = c.eglDestroySurface(eglDisplay, tmp_egl_surface);
+        defer _ = c.eglDestroySurface(egl_display, tmp_egl_surface);
 
-        _ = c.eglMakeCurrent(eglDisplay, tmp_egl_surface, tmp_egl_surface, eglContext);
+        _ = c.eglMakeCurrent(egl_display, tmp_egl_surface, tmp_egl_surface, egl_context);
     }
 
     return .{
-        .display = eglDisplay,
+        .display = egl_display,
         .config = config,
-        .context = eglContext,
+        .context = egl_context,
     };
 }
 
@@ -92,18 +92,18 @@ pub const Window = struct {
     surface: c.EGLSurface,
 
     pub inline fn init(egl: Self, surface: ?*c.struct_wl_surface, width: c_int, height: c_int) @This() {
-        const eglWindow = c.wl_egl_window_create(surface, width, height);
+        const egl_window = c.wl_egl_window_create(surface, width, height);
 
-        const eglSurface = c.eglCreateWindowSurface(
+        const egl_surface = c.eglCreateWindowSurface(
             egl.display,
             egl.config,
-            @intFromPtr(eglWindow.?),
+            @intFromPtr(egl_window.?),
             null,
         );
 
         return .{
-            .window = eglWindow,
-            .surface = eglSurface,
+            .window = egl_window,
+            .surface = egl_surface,
         };
     }
 
@@ -117,17 +117,17 @@ pub const Window = struct {
         }
     }
 
-    pub inline fn makeCurrent(self: @This(), eglInit: Self) void {
-        _ = c.eglMakeCurrent(eglInit.display, self.surface, self.surface, eglInit.context);
+    pub inline fn makeCurrent(self: @This(), egl_init: Self) void {
+        _ = c.eglMakeCurrent(egl_init.display, self.surface, self.surface, egl_init.context);
     }
 
-    pub inline fn swapBuffers(self: @This(), eglInit: Self) void {
-        _ = c.eglSwapBuffers(eglInit.display, self.surface);
+    pub inline fn swapBuffers(self: @This(), egl_init: Self) void {
+        _ = c.eglSwapBuffers(egl_init.display, self.surface);
     }
 
-    pub inline fn deinit(self: @This(), eglInit: Self) void {
+    pub inline fn deinit(self: @This(), egl_init: Self) void {
         if (self.surface != null) {
-            _ = c.eglDestroySurface(eglInit.display, self.surface);
+            _ = c.eglDestroySurface(egl_init.display, self.surface);
         }
         if (self.window) |ew| {
             _ = c.wl_egl_window_destroy(ew);

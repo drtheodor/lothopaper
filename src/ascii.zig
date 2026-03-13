@@ -1,4 +1,4 @@
-const HEADER =
+const header =
     \\==================================================================================
     \\
     \\db       .d88b.  d888888b db   db  .d88b.  d8888b.  .d8b.  d8888b. d88888b d8888b.
@@ -10,32 +10,32 @@ const HEADER =
     \\
 ;
 
-const VERSION_PREFIX = " Version: ";
-const VERSION_SUFFIX = " ";
-const TAIL = "\n";
+const version_prefix = " Version: ";
+const version_suffix = " ";
+const tail = "\n";
 
 const std = @import("std");
 
-const VERSION = @import("build.zig.zon").version;
-pub const ASCII = getAscii();
+const version = @import("build.zig.zon").version;
+pub const ascii = getAscii();
 
 fn getAscii() []const u8 {
-    var iterator = std.mem.splitSequence(u8, HEADER, "\n");
+    var iterator = std.mem.splitSequence(u8, header, "\n");
     const lineLen = iterator.next().?.len;
 
-    const fullVersion = VERSION_PREFIX ++ VERSION ++ VERSION_SUFFIX;
+    const fullVersion = version_prefix ++ version ++ version_suffix;
     const fillerLen = @divTrunc(lineLen - fullVersion.len, 2);
 
     const sep = "=" ** fillerLen;
-    return HEADER ++ "\n" ++ sep ++ fullVersion ++ sep ++ "\n" ++ TAIL;
+    return header ++ "\n" ++ sep ++ fullVersion ++ sep ++ "\n" ++ tail;
 }
 
 fn getAsciiLineLength() comptime_int {
-    const iterator = std.mem.splitSequence(u8, HEADER, "\n");
+    const iterator = std.mem.splitSequence(u8, header, "\n");
     return iterator.next();
 }
 
-pub const DEFAULT_VERT_SHADER =
+pub const default_vert_shader =
     \\#version 330 core
     \\
     \\in vec2 a_Position;
@@ -52,7 +52,7 @@ pub const DEFAULT_VERT_SHADER =
     \\}
 ;
 
-pub const DEFAULT_FRAG_SHADER =
+pub const default_frag_shader =
     \\#version 330 core
     \\
     \\uniform float Time;
@@ -130,7 +130,7 @@ pub const DEFAULT_FRAG_SHADER =
     \\}
 ;
 
-pub const SHADERTOY_FRAG_PREFIX =
+pub const shadertoy_frag_prefix =
     \\#version 330 core
     \\#define iTime Time
     \\#define iResolution Resolution
@@ -143,7 +143,7 @@ pub const SHADERTOY_FRAG_PREFIX =
     \\
 ;
 
-pub const SHADERTOY_FRAG_SUFFIX =
+pub const shadertoy_frag_suffix =
     \\
     \\void main() {
     \\    mainImage(FragColor, gl_FragCoord.xy);

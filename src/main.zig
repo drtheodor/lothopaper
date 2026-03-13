@@ -34,10 +34,19 @@ const params = clap.parseParamsComptime(
 );
 
 pub fn main() !void {
-    std.debug.print(ascii.ASCII, .{});
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&stdout_buf);
+    try stdout.interface.print(ascii.ascii, .{});
+    try stdout.interface.flush();
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer _ = gpa.deinit();
+
+    var gpa = switch (comptime @import("builtin").mode) {
+        .Debug => std.heap.DebugAllocator(.{}).init,
+        else => std.heap.GeneralPurposeAllocator(.{}).init,
+    };
+    defer std.debug.assert(gpa.deinit() == .ok);
 
     const allocator = gpa.allocator();
 
@@ -63,14 +72,15 @@ pub fn main() !void {
         } else break :subpath .{ null, true };
     };
 
+    // i will redo this whole config thing
     const config = Config.readConfig(allocator, configSubpath, initConfig) catch |err| switch (err) {
         error.FileNotFound => {
-            std.debug.print("Pass --init if you want to create the default config in a subpath.\n", .{});
+            std.log.info("Pass --init if you want to create the default config in a subpath", .{});
             return;
         },
         else => return err,
     } orelse {
-        std.debug.print("Failed to create config.\n", .{});
+        std.log.err("Failed to create config", .{});
         return;
     };
 
@@ -90,10 +100,10 @@ inline fn fpsToDelay(fps: usize) u64 {
 }
 
 pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
-    var context = try gfx.GfxContext.init(allocator, config.data.maxOutputs);
+    var context = try gfx.GfxContext.init(allocator, config.data.max_outputs);
     defer context.deinit(allocator);
 
-    var mouseHandler: ?gfx.Pointer = mouse: {
+    var mouse_handler: ?gfx.Pointer = mouse: {
         if (config.data.permissions.mouse) {
             break :mouse context.pointer() catch {
                 std.debug.print("Failed to create a pointer.\n", .{});
@@ -104,8 +114,8 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
         break :mouse null;
     };
 
-    if (mouseHandler) |*mouse| mouse.subscribe();
-    // defer if (mouseHandler) |mouse| mouse.deinit(allocator);
+    if (mouse_handler) |*mouse| mouse.subscribe();
+    // defer if (mouse_handler) |mouse| mouse.deinit(allocator);
 
     const programID = applyConfigShader(config) catch |err| {
         std.debug.print("Failed to apply shaders: {}\n", .{err});
@@ -178,18 +188,18 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
     std.debug.print("Running.\n", .{});
 
     const running = true;
-    const noScale = config.data.scale == 1;
+    const no_scale = config.data.scale == 1;
 
-    const filter: gl.GLenum = switch (config.data.scaleMode) {
+    const filter: gl.GLenum = switch (config.data.scale_mode) {
         .LINEAR => gl.GL_LINEAR,
         .NEAREST => gl.GL_NEAREST,
     };
-    const bgRed, const bgBlue, const bgGreen, const bgAlpha = config.data.backgroundColor;
+    const bgRed, const bgBlue, const bgGreen, const bgAlpha = config.data.background_color;
 
     const normalSleepTime: u64 = fpsToDelay(config.data.fps);
-    const slowSleepTime: u64 = fpsToDelay(config.data.performance.limitedFps);
+    const slowSleepTime: u64 = fpsToDelay(config.data.performance.limited_fps);
 
-    var sleepTime = normalSleepTime;
+    var sleep_time = normalSleepTime;
 
     const startTime = std.time.nanoTimestamp();
 
@@ -201,21 +211,21 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
         gl.glDisable(gl.GL_ALPHA);
     }
 
-    var tnow = std.time.nanoTimestamp();
+    var time_now = std.time.nanoTimestamp();
 
     // Main rendering loop
     while (running) {
         try context.poll();
 
         // FIXME: this is horrid. Why would anyone want time in seconds? Shouldn't we use ns or ms?
-        const elapsedSec = @as(f32, @floatFromInt(tnow - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s)) * config.data.timeFactor;
+        const elapsedSec = @as(f32, @floatFromInt(time_now - startTime)) / @as(f32, @floatFromInt(std.time.ns_per_s)) * config.data.time_factor;
 
         // Render a single frame per window
         for (context.getWindows()) |window| {
             if (window.invalid()) continue;
 
-            const width: i32 = if (noScale) window.width else @intFromFloat(@as(f32, @floatFromInt(window.width)) * config.data.scale);
-            const height: i32 = if (noScale) window.height else @intFromFloat(@as(f32, @floatFromInt(window.height)) * config.data.scale);
+            const width: i32 = if (no_scale) window.width else @intFromFloat(@as(f32, @floatFromInt(window.width)) * config.data.scale);
+            const height: i32 = if (no_scale) window.height else @intFromFloat(@as(f32, @floatFromInt(window.height)) * config.data.scale);
 
             context.makeCurrent(window);
 
@@ -231,7 +241,7 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
 
             gl.glUniform1f(timeLoc, elapsedSec);
 
-            if (mouseHandler) |mouse| {
+            if (mouse_handler) |mouse| {
                 if (mouse.isActiveIn(window)) {
                     const mouseX = mouse.x * config.data.scale;
                     const mouseY = @as(f32, @floatFromInt(height)) - (mouse.y * config.data.scale);
@@ -252,25 +262,25 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
             gl.glBindVertexArray(vao);
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
 
-            if (!noScale) {
+            if (!no_scale) {
                 gl.glBlitFramebuffer(0, 0, width, height, 0, 0, window.width, window.height, gl.GL_COLOR_BUFFER_BIT, filter);
             }
 
             context.swapBuffers(window);
         }
 
-        defer tnow = std.time.nanoTimestamp();
+        defer time_now = std.time.nanoTimestamp();
 
-        if (mouseHandler != null and config.data.performance.onHover != .IGNORE) {
-            if (mouseHandler) |*mouse| {
-                switch (config.data.performance.onHover) {
+        if (mouse_handler != null and config.data.performance.on_hover != .IGNORE) {
+            if (mouse_handler) |*mouse| {
+                switch (config.data.performance.on_hover) {
                     .LIMIT => {
-                        sleepTime = if (mouse.isActive()) normalSleepTime else slowSleepTime;
-                        std.Thread.sleep(sleepTime);
+                        sleep_time = if (mouse.isActive()) normalSleepTime else slowSleepTime;
+                        std.Thread.sleep(sleep_time);
                     },
                     .WAIT => {
                         while (!mouse.isActive()) {
-                            std.Thread.sleep(sleepTime);
+                            std.Thread.sleep(sleep_time);
                             try context.poll();
                         }
                     },
@@ -278,37 +288,37 @@ pub fn drawMain(allocator: std.mem.Allocator, config: Config) !void {
                 }
             }
         } else {
-            std.Thread.sleep(sleepTime);
+            std.Thread.sleep(sleep_time);
         }
     }
 
-    std.debug.print("Exit.\n", .{});
+    std.log.info("Process finished", .{});
 }
 
 fn applyConfigShader(config: Config) !u32 {
-    const vertSrc = try config.readConfigString("vert.glsl", ascii.DEFAULT_VERT_SHADER);
-    defer config.free(vertSrc);
+    const vert_src = try config.readConfigString("vert.glsl", ascii.default_vert_shader);
+    defer config.free(vert_src);
 
-    const fragSrc = try readFragShader(config);
-    defer config.free(fragSrc);
+    const frag_src = try readFragShader(config);
+    defer config.free(frag_src);
 
-    return gfx.loadProgram(config.allocator, vertSrc, fragSrc) catch |err| {
-        std.debug.print("Failed to load shaders. If it's a shadertoy shader, try turning on shadertoy compat in the config.\n", .{});
+    return gfx.loadProgram(config.allocator, vert_src, frag_src) catch |err| {
+        std.log.err("Failed to load shaders. If it's a shadertoy shader, try turning on shadertoy compat in the config.", .{});
         return err;
     };
 }
 
 fn readFragShader(config: Config) ![]u8 {
-    const fragSrc = try config.readConfigString("frag.glsl", ascii.DEFAULT_FRAG_SHADER);
+    const frag_src = try config.readConfigString("frag.glsl", ascii.default_frag_shader);
 
     if (config.data.shadertoy) {
-        defer config.allocator.free(fragSrc);
+        defer config.allocator.free(frag_src);
         return std.mem.concat(config.allocator, u8, &.{
-            ascii.SHADERTOY_FRAG_PREFIX,
-            fragSrc,
-            ascii.SHADERTOY_FRAG_SUFFIX,
+            ascii.shadertoy_frag_prefix,
+            frag_src,
+            ascii.shadertoy_frag_suffix,
         });
     }
 
-    return fragSrc;
+    return frag_src;
 }

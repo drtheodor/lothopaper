@@ -1,7 +1,7 @@
 const std = @import("std");
 const zigimg = @import("zigimg");
 
-pub const gl = EGL.c;
+pub const gl = egl.c;
 
 pub const ShaderError = error{
     Compile,
@@ -9,13 +9,13 @@ pub const ShaderError = error{
 };
 
 // Shader loader
-pub fn loadShader(allocator: std.mem.Allocator, shaderType: gl.GLenum, src: []const u8) ShaderError!u32 {
-    const shaderSourceC: [*c]const u8 = @as([*c]const u8, src.ptr);
-    const shaderSources = [_][*c]const u8{shaderSourceC};
+pub fn loadShader(allocator: std.mem.Allocator, s_type: gl.GLenum, src: []const u8) ShaderError!u32 {
+    const shader_source_ptr: [*c]const u8 = @as([*c]const u8, src.ptr);
+    const shader_sources = [_][*c]const u8{shader_source_ptr};
 
-    const shader = gl.glCreateShader(shaderType);
+    const shader = gl.glCreateShader(s_type);
 
-    gl.glShaderSource(shader, 1, &shaderSources, null);
+    gl.glShaderSource(shader, 1, &shader_sources, null);
     gl.glCompileShader(shader);
 
     var status: i32 = 0;
@@ -29,9 +29,9 @@ pub fn loadShader(allocator: std.mem.Allocator, shaderType: gl.GLenum, src: []co
             const buf = try allocator.alloc(u8, @intCast(log_len + 1));
             defer allocator.free(buf);
             gl.glGetShaderInfoLog(shader, log_len, null, buf.ptr);
-            std.debug.print("Shader compile log ({s}):\n{s}\n", .{ src, buf });
+            std.log.err("glsl: ({s}): {s}", .{ src, buf });
         } else {
-            std.debug.print("Shader {s} failed to compile (no info log)\n", .{src});
+            std.log.err("glsl: '{s}': compilation error (no info log)", .{src});
         }
 
         return error.Compile;
@@ -93,9 +93,9 @@ pub fn createTextureFromImage(img: zigimg.Image) gl.GLuint {
 }
 
 // merge the vertex and fragment shaders into a shaderprogram
-pub fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: []const u8) ShaderError!u32 {
-    const vert_shader = try loadShader(allocator, gl.GL_VERTEX_SHADER, vertSrc);
-    const frag_shader = try loadShader(allocator, gl.GL_FRAGMENT_SHADER, fragSrc);
+pub fn loadProgram(allocator: std.mem.Allocator, vert_src: []const u8, frag_src: []const u8) ShaderError!u32 {
+    const vert_shader = try loadShader(allocator, gl.GL_VERTEX_SHADER, vert_src);
+    const frag_shader = try loadShader(allocator, gl.GL_FRAGMENT_SHADER, frag_src);
 
     const program = gl.glCreateProgram();
     gl.glAttachShader(program, vert_shader);
@@ -130,16 +130,16 @@ pub fn loadProgram(allocator: std.mem.Allocator, vertSrc: []const u8, fragSrc: [
     return program;
 }
 
-pub const Wayland = @import("platform/wl.zig");
-pub const EGL = @import("platform/egl.zig");
+pub const wl = @import("platform/wl.zig");
+pub const egl = @import("platform/egl.zig");
 
 pub const OutputWindow = struct {
     const Self = @This();
 
-    surface: *Wayland.Surface,
-    layerSurface: *Wayland.LayerSurface,
+    surface: *wl.Surface,
+    layer_surface: *wl.LayerSurface,
     ctx: *GfxContext,
-    eglWindow: EGL.Window = undefined,
+    egl_window: egl.Window = undefined,
     width: i32 = 0,
     height: i32 = 0,
 
@@ -147,20 +147,20 @@ pub const OutputWindow = struct {
     closed: bool = false,
 
     inline fn createWindow(self: *Self) void {
-        self.eglWindow = EGL.Window.init(self.ctx.egl, @ptrCast(self.surface), self.width, self.height);
+        self.egl_window = egl.Window.init(self.ctx.egl, @ptrCast(self.surface), self.width, self.height);
     }
 
     inline fn valid(self: Self) bool {
-        return self.configured and !self.closed and self.eglWindow.valid();
+        return self.configured and !self.closed and self.egl_window.valid();
     }
 
     pub inline fn invalid(self: Self) bool {
         return !self.valid();
     }
 
-    pub inline fn deinit(self: Self, egl: EGL) void {
-        self.eglWindow.deinit(egl);
-        self.layerSurface.destroy();
+    pub inline fn deinit(self: Self, egl_ctx: egl) void {
+        self.egl_window.deinit(egl_ctx);
+        self.layer_surface.destroy();
         self.surface.destroy();
     }
 };
@@ -168,14 +168,14 @@ pub const OutputWindow = struct {
 pub const Pointer = struct {
     const Self = @This();
 
-    surface: ?*Wayland.Surface = null,
-    pointer: *Wayland.Pointer,
+    surface: ?*wl.Surface = null,
+    pointer: *wl.Pointer,
     x: f32 = 0,
     y: f32 = 0,
     left: bool = false,
     right: bool = false,
 
-    fn init(p: *Wayland.Pointer) Self {
+    fn init(p: *wl.Pointer) Self {
         return .{
             .pointer = p,
         };
@@ -193,7 +193,7 @@ pub const Pointer = struct {
         return self.surface != null;
     }
 
-    fn listener(pointer: *Wayland.Pointer, event: Wayland.Pointer.Event, self: *Self) void {
+    fn listener(pointer: *wl.Pointer, event: wl.Pointer.Event, self: *Self) void {
         _ = pointer;
         switch (event) {
             .enter => |enter| {
@@ -227,20 +227,20 @@ pub const Pointer = struct {
 pub const GfxContext = struct {
     const Self = @This();
 
-    context: Wayland,
-    egl: EGL,
-    // Create a layer surface and EGL window per output
-    windowCount: usize = 0,
+    context: wl,
+    egl: egl,
+    // Create a layer surface and egl window per output
+    window_count: usize = 0,
     // Global output windows array
     windows: []OutputWindow,
 
     pub const InitError = error{
         NoOutputs,
         NoWindows,
-    } || Wayland.InitError || EGL.InitError;
+    } || wl.InitError || egl.InitError;
 
     pub fn init(allocator: std.mem.Allocator, maxOutputs: usize) InitError!Self {
-        var context = try Wayland.init(allocator, maxOutputs);
+        var context = try wl.init(allocator, maxOutputs);
         context.postInit();
 
         var tmpSurface = try context.compositor.createSurface();
@@ -249,7 +249,7 @@ pub const GfxContext = struct {
         const tmpLayer = try context.layer.getLayerSurface(
             tmpSurface,
             null,
-            Wayland.LayerShell.Layer.background,
+            wl.LayerShell.Layer.background,
             "lothopaper-init",
         );
         defer tmpLayer.destroy();
@@ -262,7 +262,7 @@ pub const GfxContext = struct {
 
         var result: Self = .{
             .context = context,
-            .egl = try EGL.init(@ptrCast(tmpSurface), @ptrCast(context.display)),
+            .egl = try egl.init(@ptrCast(tmpSurface), @ptrCast(context.display)),
             .windows = try allocator.alloc(OutputWindow, maxOutputs),
         };
 
@@ -272,14 +272,14 @@ pub const GfxContext = struct {
 
     fn postInit(self: *Self) InitError!void {
         for (self.outputs()) |out| {
-            if (self.windowCount >= self.context.outputs.len) break;
+            if (self.window_count >= self.context.outputs.len) break;
 
             var surface = try self.context.compositor.createSurface();
 
             const layer = try self.context.layer.getLayerSurface(
                 surface,
                 out,
-                Wayland.LayerShell.Layer.background,
+                wl.LayerShell.Layer.background,
                 "lothopaper",
             );
 
@@ -292,7 +292,7 @@ pub const GfxContext = struct {
             // Initialize window slots
             const window = self.addWindow(.{
                 .surface = surface,
-                .layerSurface = layer,
+                .layer_surface = layer,
                 .ctx = self,
             });
 
@@ -305,8 +305,8 @@ pub const GfxContext = struct {
 
         if (self.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
-        if (self.windowCount == 0) {
-            std.debug.print("No output windows created.\n", .{});
+        if (self.window_count == 0) {
+            std.log.err("No output windows created.", .{});
             return error.NoWindows;
         }
     }
@@ -331,23 +331,23 @@ pub const GfxContext = struct {
     }
 
     pub inline fn swapBuffers(self: Self, window: OutputWindow) void {
-        window.eglWindow.swapBuffers(self.egl);
+        window.egl_window.swapBuffers(self.egl);
     }
 
     pub inline fn makeCurrent(self: Self, window: OutputWindow) void {
-        window.eglWindow.makeCurrent(self.egl);
+        window.egl_window.makeCurrent(self.egl);
     }
 
-    pub inline fn outputs(self: Self) []*Wayland.Output {
-        return self.context.outputs[0..self.context.outputCount];
+    pub inline fn outputs(self: Self) []*wl.Output {
+        return self.context.outputs[0..self.context.output_count];
     }
 
-    pub inline fn poll(self: Self) Wayland.RoundtripError!void {
+    pub inline fn poll(self: Self) wl.RoundtripError!void {
         // pending wayland events
         const disp = self.context.display.dispatchPending();
 
         if (disp != .SUCCESS) {
-            std.debug.print("dispatchPending error: {}\n", .{disp});
+            std.log.err("dispatchPending error: {}", .{disp});
             return error.RoundtripFailed;
         }
 
@@ -360,44 +360,41 @@ pub const GfxContext = struct {
     }
 
     pub inline fn getWindows(self: *Self) []OutputWindow {
-        return self.windows[0..self.windowCount];
+        return self.windows[0..self.window_count];
     }
 
     inline fn addWindow(self: *Self, window: OutputWindow) *OutputWindow {
-        self.windows[self.windowCount] = window;
-        defer self.windowCount += 1;
+        self.windows[self.window_count] = window;
+        defer self.window_count += 1;
 
-        return &self.windows[self.windowCount];
+        return &self.windows[self.window_count];
     }
 
     // Shell listener for zwlr and each monitor
     fn zwlrLayerListenerPerOutput(
-        layerSurface: *Wayland.LayerSurface,
-        event: Wayland.LayerSurface.Event,
+        layer_surface: *wl.LayerSurface,
+        event: wl.LayerSurface.Event,
         win: *OutputWindow,
     ) void {
         switch (event) {
-            .configure => |cfg| {
-                win.width = @intCast(cfg.width);
-                win.height = @intCast(cfg.height);
+            .configure => |ev| {
+                win.width = @intCast(ev.width);
+                win.height = @intCast(ev.height);
 
-                std.debug.print(
-                    "Configure for output: {} x {}\n",
-                    .{ win.width, win.height },
-                );
+                std.log.debug("{X}: configure for output: {}x{}", .{ ev.serial, win.width, win.height });
 
-                layerSurface.ackConfigure(cfg.serial);
+                layer_surface.ackConfigure(ev.serial);
 
                 if (win.configured) {
                     // if the eglwindow exists just resize
-                    win.eglWindow.resize(win.width, win.height);
+                    win.egl_window.resize(win.width, win.height);
                 } else {
                     win.configured = true;
                     win.createWindow();
                 }
             },
             .closed => {
-                std.debug.print("Layer closed for output\n", .{});
+                std.log.debug("layer closed for output", .{});
                 win.closed = true;
             },
         }
