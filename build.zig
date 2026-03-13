@@ -5,13 +5,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const clap = b.dependency("clap", .{}).module("clap");
+    const zigimg = b.dependency("zigimg", .{}).module("zigimg");
+
+    const mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const exe = b.addExecutable(.{
         .name = "lothopaper",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = mod,
     });
 
     const build_zig_zon = b.createModule(.{
@@ -19,16 +24,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
     exe.root_module.addImport("build.zig.zon", build_zig_zon);
-
-    const clap = b.dependency("clap", .{}).module("clap");
     exe.root_module.addImport("clap", clap);
-
-    const zigimg = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("zigimg");
-
     exe.root_module.addImport("zigimg", zigimg);
 
     const scanner = Scanner.create(b, .{});

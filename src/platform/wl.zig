@@ -12,6 +12,8 @@ pub const LayerSurface = zwlr.LayerSurfaceV1;
 pub const Output = wl.Output;
 pub const Pointer = wl.Pointer;
 
+const wl_log = std.log.scoped(.wayland);
+
 const Self = @This();
 
 display: *wl.Display,
@@ -20,19 +22,19 @@ layer: *zwlr.LayerShellV1,
 seat: *wl.Seat,
 pointer: ?*Pointer,
 
-outputCount: usize = 0,
+output_count: usize = 0,
 outputs: []*Output,
 
 const ContextBuilder = struct {
     compositor: ?*wl.Compositor = null,
     layer: ?*zwlr.LayerShellV1 = null,
     seat: ?*wl.Seat = null,
-    outputCount: usize = 0,
+    output_count: usize = 0,
     outputs: []*Output,
 };
 
 pub fn deinit(self: Self, allocator: mem.Allocator) void {
-    for (0..self.outputCount) |outputIdx| {
+    for (0..self.output_count) |outputIdx| {
         self.outputs[outputIdx].destroy();
     }
 
@@ -58,13 +60,13 @@ pub const InitError = error{
     OutOfMemory,
 } || RoundtripError;
 
-pub fn init(allocator: mem.Allocator, maxOutputs: usize) InitError!Self {
+pub fn init(allocator: mem.Allocator, max_outputs: usize) InitError!Self {
     const display = try wl.Display.connect(null);
 
     const registry = try display.getRegistry();
 
     var context: ContextBuilder = .{
-        .outputs = try allocator.alloc(*Output, maxOutputs),
+        .outputs = try allocator.alloc(*Output, max_outputs),
     };
 
     registry.setListener(*ContextBuilder, registryListener, &context);
@@ -79,8 +81,8 @@ pub fn postInit(self: *Self) void {
 }
 
 inline fn fromBuilder(display: *wl.Display, ctx: ContextBuilder) InitError!Self {
-    if (ctx.outputCount == 0) {
-        std.debug.print("No outputs found.\n", .{});
+    if (ctx.output_count == 0) {
+        std.log.err("No outputs found.\n", .{});
         return error.NoOutputs;
     }
 
@@ -90,7 +92,7 @@ inline fn fromBuilder(display: *wl.Display, ctx: ContextBuilder) InitError!Self 
         .layer = ctx.layer orelse return error.NoZwlrLayer,
         .seat = ctx.seat orelse return error.NoSeat,
         .pointer = null,
-        .outputCount = ctx.outputCount,
+        .output_count = ctx.output_count,
         .outputs = ctx.outputs,
     };
 }
@@ -102,30 +104,30 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, ctx: *Cont
 
             if (mem.eql(u8, iface, std.mem.span(wl.Compositor.interface.name))) {
                 ctx.compositor = registry.bind(g.name, wl.Compositor, 4) catch |err| {
-                    std.debug.print("Failed to get compositor: {}\n", .{err});
+                    wl_log.err("Failed to get compositor: {t}", .{err});
                     return;
                 };
             } else if (mem.eql(u8, iface, std.mem.span(zwlr.LayerShellV1.interface.name))) {
                 ctx.layer = registry.bind(g.name, zwlr.LayerShellV1, 4) catch |err| {
-                    std.debug.print("Failed to get layer shell: {}\n", .{err});
+                    wl_log.err("Failed to get layer shell: {t}", .{err});
                     return;
                 };
             } else if (mem.eql(u8, iface, std.mem.span(wl.Output.interface.name))) {
-                if (ctx.outputCount < ctx.outputs.len) {
+                if (ctx.output_count < ctx.outputs.len) {
                     const out = registry.bind(g.name, wl.Output, 3) catch |err| {
-                        std.debug.print("Failed to get output: {}\n", .{err});
+                        wl_log.err("Failed to get output: {t}", .{err});
                         return;
                     };
 
-                    ctx.outputs[ctx.outputCount] = out;
-                    ctx.outputCount += 1;
+                    ctx.outputs[ctx.output_count] = out;
+                    ctx.output_count += 1;
                 } else {
-                    ctx.outputCount += 1;
-                    std.debug.print("Too many outputs: {}!\n", .{ctx.outputCount});
+                    ctx.output_count += 1;
+                    wl_log.err("Too many outputs: {d}", .{ctx.output_count});
                 }
             } else if (mem.eql(u8, iface, std.mem.span(wl.Seat.interface.name))) {
                 const seat = registry.bind(g.name, wl.Seat, 3) catch |err| {
-                    std.debug.print("Failed to get seat: {}.\n", .{err});
+                    wl_log.err("Failed to get seat: {t}", .{err});
                     return;
                 };
 

@@ -28,21 +28,26 @@ pub const Permissions = packed struct {
 };
 
 pub const Performance = struct {
-    onHover: RenderMode = .LIMIT,
-    limitedFps: usize = 30,
+    on_hover: RenderMode = .LIMIT,
+    limited_fps: usize = 30,
 };
 
 pub const Data = struct {
     fps: usize = 60,
-    maxOutputs: usize = 8,
+    max_outputs: usize = 8,
     resources: []const Resource = &.{},
     shadertoy: bool = false,
-    timeFactor: f32 = 1,
+    time_factor: f32 = 1,
     scale: f32 = 1,
-    scaleMode: ScaleMode = .LINEAR,
+    scale_mode: ScaleMode = .LINEAR,
     permissions: Permissions = .{},
     performance: Performance = .{},
-    backgroundColor: [4]f32 = .{ 0, 0, 0, 1 },
+    background_color: [4]f32 = .{ 0, 0, 0, 1 },
+};
+
+pub const ValidationError = error{
+    ScaleOutOfRange,
+    ColorOutOfRange,
 };
 
 subpath: ?[]const u8,
@@ -75,8 +80,8 @@ fn readOrCreateFile(allocator: mem.Allocator, path: []const u8, ctx: anytype, de
     std.debug.print("File '{s}' does not exist. Creating default.\n", .{path});
 
     var buffer: [1024]u8 = undefined;
-    var fileWriter = file.writer(&buffer);
-    var writer = &fileWriter.interface;
+    var file_writer = file.writer(&buffer);
+    var writer = &file_writer.interface;
 
     try def(writer, ctx);
 
@@ -91,23 +96,18 @@ pub fn readConfig(allocator: std.mem.Allocator, subpath: ?[]const u8, init: bool
         .subpath = subpath,
         .data = undefined,
     };
-
-    if (init) {
-        try self.ensureConfigPath();
-    }
+    if (init) try self.ensureConfigPath();
 
     const path = try self.getConfigPath("config.zon");
     defer allocator.free(path);
 
     const src = readOrCreateFile(allocator, path, {}, writeDefaultConfig) catch |err| switch (err) {
         error.FileNotFound => {
-            std.debug.print("Couldn't create file {s}\n", .{path});
+            std.log.err("Unable to create '{s}'", .{path});
             return err;
         },
         else => return err,
     };
-
-    std.debug.print("Config: {s}\n", .{src});
     defer allocator.free(src);
 
     const terminated = try allocator.dupeZ(u8, src);
@@ -116,34 +116,36 @@ pub fn readConfig(allocator: std.mem.Allocator, subpath: ?[]const u8, init: bool
     var diag: zon.Diagnostics = .{};
     defer diag.deinit(allocator);
 
-    const data = zon.fromSlice(Data, allocator, terminated, &diag, .{
-        .free_on_error = true,
-        .ignore_unknown_fields = false,
-    });
+    // Parse the config and check if it failed
+    self.data = zon.fromSlice(Data, allocator, terminated, &diag, .{}) catch |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+        error.ParseZon => {
+            var buffer: [1024]u8 = undefined;
+            var writer = std.fs.File.stdout().writer(&buffer);
+            var stdout = &writer.interface;
+            try stdout.print("{f}\n", .{diag});
+            try stdout.flush();
+            return err;
+        },
+    };
 
-    const stdoutFile = std.fs.File.stdout();
-    var buffer: [1024]u8 = undefined; // Define a buffer for the writer
-    var writer = stdoutFile.writer(&buffer);
-    var stdout = &writer.interface;
-
-    try diag.format(stdout);
-    try stdout.flush();
-
-    self.data = try data;
-
-    if (self.data.scale > 1) {
-        std.debug.print("Scale can't be bigger than 1.\n", .{});
-        return error.ConfigValidation;
-    }
-
-    for (self.data.backgroundColor) |c| {
-        if (c < 0 or c > 1) {
-            std.debug.print("Background color must be in [0; 1] range.", .{});
-            return error.ConfigValidation;
+    // Check config errors
+    if (self.getError()) |err| {
+        switch (err) {
+            error.ScaleOutOfRange => std.log.err("scale out of range: [*; 1] expected, got: {d}", .{self.data.scale}),
+            error.ColorOutOfRange => std.log.err("background color out of range: [0; 1] expected", .{}),
         }
+        return err;
     }
-
     return self;
+}
+
+pub fn getError(self: *Self) ?ValidationError {
+    if (self.data.scale > 1)
+        return ValidationError.ScaleOutOfRange;
+    for (self.data.background_color) |color| if (color < 0 or color > 1)
+        return ValidationError.ColorOutOfRange;
+    return null;
 }
 
 pub fn deinit(self: @This()) void {
@@ -163,7 +165,7 @@ fn writeDefaultConfig(writer: *std.Io.Writer, _: void) error{WriteFailed}!void {
     const val: Data = .{};
 
     std.zon.stringify.serialize(val, .{}, writer) catch {
-        std.debug.print("Failed to serialize default config.\n", .{});
+        std.log.err("Failed to serialize the default config", .{});
     };
 }
 
